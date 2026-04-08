@@ -371,6 +371,7 @@ def job_linux_update(params):
 def job_docker_update(params):
     """Update Docker containers: pull new images, recreate changed containers."""
     container = params.get('container', None)
+    containers = params.get('containers', [])
     compose_dir = params.get('compose_dir', None)
     output_parts = []
 
@@ -381,26 +382,34 @@ def job_docker_update(params):
             timeout=600
         )
         output_parts.append(f"Compose update in {compose_dir}:\n{stdout}\n{stderr}")
+    elif containers and len(containers) > 0:
+        # Multiple selected containers
+        for c in containers:
+            rc, stdout, stderr = run_command(
+                f"docker inspect --format='{{{{.Config.Image}}}}' {c}", timeout=30
+            )
+            image = stdout.strip()
+            if image:
+                rc2, stdout2, stderr2 = run_command(f"docker pull {image}", timeout=300)
+                output_parts.append(f"[{c}] Pulled {image}:\n{stdout2.strip()}")
+            else:
+                output_parts.append(f"[{c}] Could not find image")
+        # Recreate via compose if possible
+        output_parts.append("\nImages pulled. Restart containers via compose or manually.")
     elif container:
-        # Single container update via inspect + recreate
+        # Single container (legacy)
         rc, stdout, stderr = run_command(
             f"docker inspect --format='{{{{.Config.Image}}}}' {container}", timeout=30
         )
         image = stdout.strip()
         if image:
             run_command(f"docker pull {image}", timeout=300)
-            # Get container config for recreation
-            rc2, info, _ = run_command(
-                f"docker inspect {container}", timeout=30
-            )
             output_parts.append(f"Pulled latest {image}")
-
             rc3, stdout3, stderr3 = run_command(
                 f"docker stop {container} && docker rm {container}",
                 timeout=60
             )
             output_parts.append(f"Stopped and removed {container}")
-            # Note: recreation needs the original run command, which we don't have
             output_parts.append(
                 "Container stopped. Use docker-compose or re-run with original params."
             )
