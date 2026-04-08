@@ -18,7 +18,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 const DB_PATH = path.join(__dirname, 'labctl-data.json');
 function loadDB() {
   try { return JSON.parse(fs.readFileSync(DB_PATH, 'utf-8')); }
-  catch { return { hosts: {}, jobs: {}, schedules: {}, credentials: {} }; }
+  catch { return { hosts: {}, jobs: {}, schedules: {}, credentials: {}, groups: {} }; }
 }
 function saveDB(data) { fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2)); }
 let db = loadDB();
@@ -223,6 +223,39 @@ app.post('/api/credentials', (req, res) => {
   const id = uuidv4(); db.credentials[id] = { id, host_id, username, password, purpose, created_at: ts() }; deferSave(); res.json({ id, created: true });
 });
 app.delete('/api/credentials/:id', (req, res) => { delete db.credentials[req.params.id]; deferSave(); res.json({ ok: true }); });
+
+// Groups
+if (!db.groups) db.groups = {};
+app.get('/api/groups', (req, res) => {
+  res.json(Object.values(db.groups).sort((a,b) => (a.order||0) - (b.order||0)));
+});
+app.post('/api/groups', (req, res) => {
+  const { name, color } = req.body;
+  if (!name) return res.status(400).json({ error: 'name required' });
+  const id = uuidv4();
+  const order = Object.keys(db.groups).length;
+  db.groups[id] = { id, name, color: color || '#3b82f6', order, created_at: ts() };
+  deferSave(); res.json(db.groups[id]);
+});
+app.put('/api/groups/:id', (req, res) => {
+  const g = db.groups[req.params.id]; if (!g) return res.status(404).json({ error: 'Not found' });
+  const { name, color, order } = req.body;
+  if (name !== undefined) g.name = name;
+  if (color !== undefined) g.color = color;
+  if (order !== undefined) g.order = order;
+  deferSave(); res.json(g);
+});
+app.delete('/api/groups/:id', (req, res) => {
+  delete db.groups[req.params.id];
+  // Unassign hosts from this group
+  Object.values(db.hosts).forEach(h => { if (h.group_id === req.params.id) h.group_id = null; });
+  deferSave(); res.json({ ok: true });
+});
+app.put('/api/hosts/:id/group', (req, res) => {
+  const host = db.hosts[req.params.id]; if (!host) return res.status(404).json({ error: 'Not found' });
+  host.group_id = req.body.group_id || null;
+  deferSave(); res.json({ ok: true });
+});
 
 // Chains
 app.post('/api/chains/proxmox-backup-all', (req, res) => {
