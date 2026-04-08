@@ -954,10 +954,34 @@ function ActionsPage({ hosts, addToast }) {
       return;
     }
 
+    const meta = JOB_TYPES[jobType];
+    let targetIds = [...selectedHosts];
+
+    // Filter hosts by OS compatibility
+    if (meta && meta.os !== 'all') {
+      const compatible = [];
+      const skipped = [];
+      for (const hid of selectedHosts) {
+        const h = hosts.find(x => x.id === hid);
+        const isWin = (h?.os || '').toLowerCase().includes('windows');
+        if (meta.os === 'windows' && !isWin) { skipped.push(h?.hostname || hid); }
+        else if (meta.os === 'linux' && isWin) { skipped.push(h?.hostname || hid); }
+        else { compatible.push(hid); }
+      }
+      if (skipped.length > 0) {
+        addToast(`Skipped ${skipped.join(', ')} (not ${meta.os}). Running on ${compatible.length} compatible host(s).`, 'error');
+      }
+      if (compatible.length === 0) {
+        addToast(`No ${meta.os} hosts selected. ${meta.label} requires ${meta.os}.`, 'error');
+        return;
+      }
+      targetIds = compatible;
+    }
+
     const res = await api('/api/jobs/batch', {
       method: 'POST',
       body: {
-        host_ids: selectedHosts,
+        host_ids: targetIds,
         type: jobType,
         params: jobParams
       }
