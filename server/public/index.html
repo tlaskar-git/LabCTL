@@ -317,8 +317,8 @@
       border: 1px solid var(--border);
       border-radius: 10px;
       width: 100%;
-      max-width: 600px;
-      max-height: 80vh;
+      max-width: 700px;
+      max-height: 85vh;
       overflow-y: auto;
       padding: 24px;
     }
@@ -837,11 +837,12 @@ function ActionsPage({ hosts, addToast }) {
   const [jobParams, setJobParams] = useState({});
   const [groups, setGroups] = useState([]);
   const [trackedJobs, setTrackedJobs] = useState([]);
+  const [modalJobs, setModalJobs] = useState([]);
   const outputRef = useRef(null);
 
   useEffect(() => { api('/api/groups').then(setGroups).catch(() => {}); }, []);
 
-  // Poll tracked jobs for updates
+  // Poll tracked jobs (background panel)
   useEffect(() => {
     if (trackedJobs.length === 0) return;
     const hasActive = trackedJobs.some(j => ['pending','sent','running'].includes(j.status));
@@ -854,6 +855,30 @@ function ActionsPage({ hosts, addToast }) {
     }, 2000);
     return () => clearInterval(i);
   }, [trackedJobs]);
+
+  // Poll modal jobs (inside modal)
+  useEffect(() => {
+    if (modalJobs.length === 0) return;
+    const hasActive = modalJobs.some(j => ['pending','sent','running'].includes(j.status));
+    if (!hasActive) return;
+    const i = setInterval(async () => {
+      const updated = await Promise.all(
+        modalJobs.map(j => api(`/api/jobs/${j.id}`).catch(() => j))
+      );
+      setModalJobs(updated);
+    }, 2000);
+    return () => clearInterval(i);
+  }, [modalJobs]);
+
+  // When closing modal, move modal jobs to background panel
+  const closeModal = () => {
+    if (modalJobs.length > 0) {
+      setTrackedJobs(prev => [...modalJobs, ...prev]);
+    }
+    setModalJobs([]);
+    setShowJobModal(null);
+    setJobParams({});
+  };
 
   const toggleHost = (id) => {
     setSelectedHosts(prev =>
@@ -917,13 +942,10 @@ function ActionsPage({ hosts, addToast }) {
       }
     });
 
-    // Track dispatched jobs
+    // Add to modal jobs (shown inside the modal)
     const newJobs = res.map(j => ({ ...j, type: jobType, status: 'pending', result: '', error: '', hostname: hosts.find(h => h.id === j.host_id)?.hostname || j.host_id }));
-    setTrackedJobs(prev => [...newJobs, ...prev]);
-    addToast(`Dispatched ${jobType} to ${res.length} host(s)`);
-    setShowJobModal(null);
+    setModalJobs(prev => [...newJobs, ...prev]);
     setJobParams({});
-    setTimeout(() => { if (outputRef.current) outputRef.current.scrollIntoView({ behavior: 'smooth' }); }, 100);
   };
 
   const submitChain = async () => {
@@ -939,11 +961,8 @@ function ActionsPage({ hosts, addToast }) {
       });
       res.forEach(j => newJobs.push({ ...j, type: 'backup', status: 'pending', result: '', error: '', hostname: hosts.find(h => h.id === j.host_id)?.hostname || j.host_id }));
     }
-    setTrackedJobs(prev => [...newJobs, ...prev]);
-    addToast(`Backup chain dispatched to ${selectedHosts.length} host(s)`);
-    setShowJobModal(null);
+    setModalJobs(prev => [...newJobs, ...prev]);
     setJobParams({});
-    setTimeout(() => { if (outputRef.current) outputRef.current.scrollIntoView({ behavior: 'smooth' }); }, 100);
   };
 
   return (
@@ -1025,7 +1044,7 @@ function ActionsPage({ hosts, addToast }) {
 
       {/* Job parameter modals */}
       {showJobModal && showJobModal !== '_backup_chain' && (
-        <Modal title={`Run: ${JOB_TYPES[showJobModal]?.label}`} onClose={() => setShowJobModal(null)}>
+        <Modal title={`Run: ${JOB_TYPES[showJobModal]?.label}`} onClose={closeModal}>
           <div style={{ marginBottom: 16, color: 'var(--text-dim)', fontSize: 13 }}>
             Targets: {selectedHosts.length} host(s) selected
           </div>
@@ -1144,17 +1163,58 @@ function ActionsPage({ hosts, addToast }) {
             </div>
           )}
 
-          <div className="btn-group" style={{ justifyContent: 'flex-end' }}>
-            <button className="btn" onClick={() => setShowJobModal(null)}>Cancel</button>
+          <div className="btn-group" style={{ justifyContent: 'flex-end', marginBottom: modalJobs.length > 0 ? 16 : 0 }}>
+            <button className="btn" onClick={closeModal}>Close</button>
             <button className="btn btn-primary" onClick={() => submitJob(showJobModal)}>
               <Icons.Play/> Execute
             </button>
           </div>
+
+          {/* Inline job output */}
+          {modalJobs.length > 0 && (
+            <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 }}>
+                Output ({modalJobs.filter(j => ['pending','sent','running'].includes(j.status)).length} active)
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 400, overflowY: 'auto' }}>
+                {modalJobs.map(job => (
+                  <div key={job.id} style={{
+                    background: 'var(--bg-primary)', border: '1px solid var(--border)',
+                    borderRadius: 6, padding: 10,
+                    borderLeftColor: job.status === 'completed' ? 'var(--green)' : job.status === 'failed' ? 'var(--red)' : job.status === 'running' ? 'var(--accent)' : 'var(--yellow)',
+                    borderLeftWidth: 3
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                      <StatusBadge status={job.status}/>
+                      <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{job.hostname}</span>
+                      {['pending','sent'].includes(job.status) && (
+                        <button className="btn btn-sm" style={{ marginLeft: 'auto', padding: '1px 6px', fontSize: 10 }}
+                          onClick={async () => {
+                            await api(`/api/jobs/${job.id}/cancel`, { method: 'POST' });
+                            setModalJobs(prev => prev.map(j => j.id === job.id ? { ...j, status: 'cancelled' } : j));
+                          }}>Cancel</button>
+                      )}
+                    </div>
+                    {(job.result || job.error) && (
+                      <div className="output-log" style={{ maxHeight: 150, fontSize: 10 }}>
+                        {job.result || job.error}
+                      </div>
+                    )}
+                    {['pending','sent','running'].includes(job.status) && !job.result && (
+                      <div style={{ fontSize: 10, color: 'var(--text-dim)', fontStyle: 'italic' }}>
+                        {job.status === 'running' ? 'Running...' : 'Queued...'}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </Modal>
       )}
 
       {showJobModal === '_backup_chain' && (
-        <Modal title="Backup + Reboot + Autologin Chain" onClose={() => setShowJobModal(null)}>
+        <Modal title="Backup + Reboot + Autologin Chain" onClose={closeModal}>
           <div style={{ marginBottom: 16, color: 'var(--text-dim)', fontSize: 13 }}>
             Runs backup script, then reboots, then configures autologin on Windows hosts.
           </div>
@@ -1171,10 +1231,44 @@ function ActionsPage({ hosts, addToast }) {
             </div>
             Reboot hosts after backup
           </div>
-          <div className="btn-group" style={{ justifyContent: 'flex-end' }}>
-            <button className="btn" onClick={() => setShowJobModal(null)}>Cancel</button>
+          <div className="btn-group" style={{ justifyContent: 'flex-end', marginBottom: modalJobs.length > 0 ? 16 : 0 }}>
+            <button className="btn" onClick={closeModal}>Close</button>
             <button className="btn btn-primary" onClick={submitChain}><Icons.Play/> Run Chain</button>
           </div>
+
+          {/* Inline job output */}
+          {modalJobs.length > 0 && (
+            <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 }}>
+                Output ({modalJobs.filter(j => ['pending','sent','running'].includes(j.status)).length} active)
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 400, overflowY: 'auto' }}>
+                {modalJobs.map(job => (
+                  <div key={job.id} style={{
+                    background: 'var(--bg-primary)', border: '1px solid var(--border)',
+                    borderRadius: 6, padding: 10,
+                    borderLeftColor: job.status === 'completed' ? 'var(--green)' : job.status === 'failed' ? 'var(--red)' : job.status === 'running' ? 'var(--accent)' : 'var(--yellow)',
+                    borderLeftWidth: 3
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                      <StatusBadge status={job.status}/>
+                      <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{job.hostname}</span>
+                    </div>
+                    {(job.result || job.error) && (
+                      <div className="output-log" style={{ maxHeight: 150, fontSize: 10 }}>
+                        {job.result || job.error}
+                      </div>
+                    )}
+                    {['pending','sent','running'].includes(job.status) && !job.result && (
+                      <div style={{ fontSize: 10, color: 'var(--text-dim)', fontStyle: 'italic' }}>
+                        {job.status === 'running' ? 'Running...' : 'Queued...'}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </Modal>
       )}
 
