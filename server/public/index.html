@@ -193,6 +193,14 @@
     .btn-danger { background: var(--red); border-color: var(--red); color: white; }
     .btn-danger:hover { opacity: 0.9; }
     .btn-sm { padding: 4px 10px; font-size: 11px; }
+    .btn-close {
+      width: 28px; height: 28px; padding: 0; display: inline-flex;
+      align-items: center; justify-content: center; border-radius: 6px;
+      background: transparent; border: 1px solid var(--border); cursor: pointer;
+      color: var(--text-dim); transition: all 0.15s;
+    }
+    .btn-close:hover { background: var(--red-bg); border-color: var(--red); color: var(--red); }
+    .btn-close svg { width: 14px; height: 14px; }
     .btn-group { display: flex; gap: 8px; flex-wrap: wrap; }
 
     /* Form inputs */
@@ -252,7 +260,7 @@
     /* Host cards grid */
     .hosts-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
       gap: 12px;
       margin-bottom: 24px;
     }
@@ -365,7 +373,7 @@
       background: var(--bg-card-hover);
       transform: translateY(-1px);
     }
-    .action-tile svg { margin-bottom: 8px; color: var(--accent); width: 28px; height: 28px; }
+    .action-tile svg { margin-bottom: 6px; color: var(--accent); width: 20px; height: 20px; }
     .action-tile-label { font-size: 12px; font-weight: 600; }
     .action-tile-desc { font-size: 10px; color: var(--text-dim); margin-top: 4px; }
 
@@ -580,7 +588,7 @@ function Modal({ title, onClose, children }) {
       <div className="modal" onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <div className="modal-title">{title}</div>
-          <button className="btn btn-sm" onClick={onClose}><Icons.X/></button>
+          <button className="btn-close" onClick={onClose}><Icons.X/></button>
         </div>
         {children}
       </div>
@@ -1092,18 +1100,27 @@ function ActionsPage({ hosts, addToast }) {
           {showJobModal === 'docker_update' && (() => {
             const selHosts = hosts.filter(h => selectedHosts.includes(h.id));
             const allContainers = selHosts.flatMap(h => (h.system_info?.docker_containers || []).map(c => ({ host: h.hostname, name: c })));
+            const selectedContainers = jobParams.containers || [];
+            const toggleContainer = (name) => {
+              const cur = jobParams.containers || [];
+              setJobParams(p => ({ ...p, containers: cur.includes(name) ? cur.filter(c => c !== name) : [...cur, name] }));
+            };
             return (
               <div style={{ marginBottom: 16 }}>
                 <div className="form-group" style={{ marginBottom: 12 }}>
-                  <label className="form-label">Container</label>
-                  <select className="select input"
-                    value={jobParams.container || ''}
-                    onChange={e => setJobParams(p => ({ ...p, container: e.target.value }))}>
-                    <option value="">All containers</option>
-                    {allContainers.map((c, i) => (
-                      <option key={i} value={c.name}>{c.name} ({c.host})</option>
-                    ))}
-                  </select>
+                  <label className="form-label">Containers</label>
+                  <div style={{ fontSize: 10, color: 'var(--text-dim)', marginBottom: 6 }}>Select specific containers or leave all unchecked to update everything.</div>
+                  <div style={{ maxHeight: 200, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 6, padding: 8, background: 'var(--bg-input)' }}>
+                    {allContainers.length > 0 ? allContainers.map((c, i) => (
+                      <div key={i} className="checkbox-row" onClick={() => toggleContainer(c.name)} style={{ marginBottom: 4 }}>
+                        <div className={`checkbox ${selectedContainers.includes(c.name) ? 'checked' : ''}`}>
+                          {selectedContainers.includes(c.name) && <span style={{ color: 'white', fontSize: 10 }}>✓</span>}
+                        </div>
+                        <span style={{ fontSize: 12, fontFamily: 'JetBrains Mono, monospace' }}>{c.name}</span>
+                        <span style={{ fontSize: 10, color: 'var(--text-dim)' }}>({c.host})</span>
+                      </div>
+                    )) : <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>No containers detected on selected hosts.</div>}
+                  </div>
                 </div>
                 <div className="form-group">
                   <label className="form-label">Compose Directory (optional)</label>
@@ -1169,19 +1186,28 @@ function ActionsPage({ hosts, addToast }) {
           {showJobModal === 'service_control' && (() => {
             const selHosts = hosts.filter(h => selectedHosts.includes(h.id));
             const allServices = [...new Set(selHosts.flatMap(h => h.system_info?.services || []))].sort();
+            const selectedServices = jobParams.services || [];
+            const toggleService = (name) => {
+              const cur = jobParams.services || [];
+              setJobParams(p => ({ ...p, services: cur.includes(name) ? cur.filter(s => s !== name) : [...cur, name] }));
+            };
             return (
               <div style={{ marginBottom: 16 }}>
                 <div className="form-group" style={{ marginBottom: 12 }}>
-                  <label className="form-label">Service</label>
+                  <label className="form-label">Services</label>
                   {allServices.length > 0 ? (
-                    <select className="select input"
-                      value={jobParams.service || ''}
-                      onChange={e => setJobParams(p => ({ ...p, service: e.target.value }))}>
-                      <option value="">Select service...</option>
-                      {allServices.map(s => <option key={s} value={s}>{s}</option>)}
-                    </select>
+                    <div style={{ maxHeight: 200, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 6, padding: 8, background: 'var(--bg-input)' }}>
+                      {allServices.map(s => (
+                        <div key={s} className="checkbox-row" onClick={() => toggleService(s)} style={{ marginBottom: 3 }}>
+                          <div className={`checkbox ${selectedServices.includes(s) ? 'checked' : ''}`}>
+                            {selectedServices.includes(s) && <span style={{ color: 'white', fontSize: 10 }}>✓</span>}
+                          </div>
+                          <span style={{ fontSize: 12, fontFamily: 'JetBrains Mono, monospace' }}>{s}</span>
+                        </div>
+                      ))}
+                    </div>
                   ) : (
-                    <input className="input" placeholder="Service name"
+                    <input className="input" placeholder="Service name (comma-separated for multiple)"
                       value={jobParams.service || ''}
                       onChange={e => setJobParams(p => ({ ...p, service: e.target.value }))}/>
                   )}
@@ -1224,7 +1250,20 @@ function ActionsPage({ hosts, addToast }) {
                 {hasWindows && (
                   <div style={{ marginBottom: 12 }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6 }}>Windows Cleanup</div>
-                    {[['temp','Temp Files'], ['windows_update_cache','Windows Update Cache'], ['recycle_bin','Recycle Bin'], ['event_logs','Event Logs']].map(([k,v]) => (
+                    {[
+                      ['temp','Temp Files (User + System)'],
+                      ['windows_update_cache','Windows Update Cache'],
+                      ['recycle_bin','Recycle Bin'],
+                      ['event_logs','Event Logs'],
+                      ['prefetch','Prefetch Files'],
+                      ['thumbnails','Thumbnail Cache'],
+                      ['delivery_optimization','Delivery Optimization Cache'],
+                      ['cbs_logs','CBS Logs (Component Store)'],
+                      ['font_cache','Font Cache'],
+                      ['error_reports','Windows Error Reports'],
+                      ['installer_cache','Old Installer Cache ($WINDOWS.~BT)'],
+                      ['memory_dumps','Memory Dump Files'],
+                    ].map(([k,v]) => (
                       <div key={k} className="checkbox-row" onClick={() => toggleOpt(k)} style={{ marginBottom: 4 }}>
                         <div className={`checkbox ${opts.includes(k) ? 'checked' : ''}`}>
                           {opts.includes(k) && <span style={{ color: 'white', fontSize: 10 }}>✓</span>}
@@ -1237,7 +1276,19 @@ function ActionsPage({ hosts, addToast }) {
                 {hasLinux && (
                   <div>
                     <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6 }}>Linux Cleanup</div>
-                    {[['apt_cache','APT Cache + Autoremove'], ['journal','Journal Logs (older than 7d)'], ['docker_prune','Docker Prune'], ['tmp','Temp Files (/tmp)']].map(([k,v]) => (
+                    {[
+                      ['apt_cache','APT Cache + Autoremove'],
+                      ['journal','Journal Logs (older than 7d)'],
+                      ['docker_prune','Docker Prune (images, volumes, networks)'],
+                      ['tmp','Temp Files (/tmp)'],
+                      ['old_kernels','Old Kernels'],
+                      ['snap_cache','Snap Cache (old revisions)'],
+                      ['pip_cache','Pip Cache'],
+                      ['log_rotate','Force Log Rotation + Compress'],
+                      ['coredumps','Core Dumps'],
+                      ['thumbnail_cache','Thumbnail Cache (~/.cache/thumbnails)'],
+                      ['trash','User Trash (~/.local/share/Trash)'],
+                    ].map(([k,v]) => (
                       <div key={k} className="checkbox-row" onClick={() => toggleOpt(k)} style={{ marginBottom: 4 }}>
                         <div className={`checkbox ${opts.includes(k) ? 'checked' : ''}`}>
                           {opts.includes(k) && <span style={{ color: 'white', fontSize: 10 }}>✓</span>}
@@ -1252,18 +1303,98 @@ function ActionsPage({ hosts, addToast }) {
             );
           })()}
 
-          {showJobModal === 'file_browse' && (
-            <div className="form-group" style={{ marginBottom: 16 }}>
-              <label className="form-label">Path</label>
-              <input className="input mono" placeholder={(() => {
-                const h = hosts.find(h => selectedHosts.includes(h.id));
-                return (h?.os || '').toLowerCase().includes('windows') ? 'C:\\' : '/';
-              })()}
-                value={jobParams.path || ''}
-                onChange={e => setJobParams(p => ({ ...p, path: e.target.value }))}/>
-              <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 4 }}>Browse directories on the remote host.</div>
-            </div>
-          )}
+          {showJobModal === 'file_browse' && (() => {
+            const selHost = hosts.find(h => selectedHosts.includes(h.id));
+            const isWin = (selHost?.os || '').toLowerCase().includes('windows');
+            const defaultPath = isWin ? 'C:\\' : '/';
+            const currentPath = jobParams.path || defaultPath;
+
+            // Parse previous browse results for clickable navigation
+            const lastBrowse = modalJobs.find(j => j.type === 'file_browse' && j.status === 'completed' && j.result);
+            let entries = [];
+            if (lastBrowse && lastBrowse.result) {
+              try {
+                entries = JSON.parse(lastBrowse.result);
+                if (!Array.isArray(entries)) entries = [];
+              } catch(e) {
+                // Try to parse line-by-line listing
+                entries = lastBrowse.result.split('\n').filter(l => l.trim()).map(l => {
+                  const parts = l.trim().split(/\s+/);
+                  const name = parts[parts.length - 1] || l.trim();
+                  const isDir = l.startsWith('d') || l.includes('<DIR>') || name.endsWith('/') || name.endsWith('\\');
+                  return { name: name.replace(/[\/\\]$/, ''), is_dir: isDir, size: '' };
+                });
+              }
+            }
+
+            const navigateTo = (dir) => {
+              const sep = isWin ? '\\' : '/';
+              let newPath;
+              if (dir === '..') {
+                const parts = currentPath.replace(/[\/\\]+$/, '').split(/[\/\\]/);
+                parts.pop();
+                newPath = parts.join(sep) || (isWin ? 'C:\\' : '/');
+                if (isWin && !newPath.includes('\\')) newPath += '\\';
+              } else {
+                newPath = currentPath.replace(/[\/\\]+$/, '') + sep + dir;
+              }
+              setJobParams(p => ({ ...p, path: newPath }));
+              // Auto-browse
+              setTimeout(() => submitJob('file_browse'), 100);
+            };
+
+            return (
+              <div style={{ marginBottom: 16 }}>
+                <div className="form-group" style={{ marginBottom: 8 }}>
+                  <label className="form-label">Path</label>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <input className="input mono" placeholder={defaultPath} style={{ flex: 1 }}
+                      value={currentPath}
+                      onChange={e => setJobParams(p => ({ ...p, path: e.target.value }))}
+                      onKeyDown={e => { if (e.key === 'Enter') submitJob('file_browse'); }}/>
+                    <button className="btn btn-sm" onClick={() => navigateTo('..')} style={{ padding: '6px 10px' }}>Up</button>
+                  </div>
+                </div>
+
+                {/* Directory listing from last browse result */}
+                {entries.length > 0 && (
+                  <div style={{ border: '1px solid var(--border)', borderRadius: 6, maxHeight: 250, overflowY: 'auto', background: 'var(--bg-input)' }}>
+                    {entries.map((entry, i) => (
+                      <div key={i} onClick={() => entry.is_dir && navigateTo(entry.name)} style={{
+                        display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px',
+                        borderBottom: '1px solid var(--border)', cursor: entry.is_dir ? 'pointer' : 'default',
+                        fontSize: 12, fontFamily: 'JetBrains Mono, monospace',
+                      }}>
+                        <span style={{ color: entry.is_dir ? 'var(--accent)' : 'var(--text-dim)', fontSize: 14 }}>
+                          {entry.is_dir ? '\uD83D\uDCC1' : '\uD83D\uDCC4'}
+                        </span>
+                        <span style={{ flex: 1, color: entry.is_dir ? 'var(--accent)' : 'var(--text-secondary)' }}>{entry.name}</span>
+                        {entry.size && <span style={{ fontSize: 10, color: 'var(--text-dim)' }}>{entry.size}</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                  <button className="btn btn-sm" onClick={() => {
+                    setJobParams(p => ({ ...p, action: 'download', path: currentPath }));
+                  }}><Icons.Download/> Download File</button>
+                  <label className="btn btn-sm" style={{ cursor: 'pointer' }}>
+                    <Icons.Download style={{ transform: 'rotate(180deg)' }}/> Upload File
+                    <input type="file" style={{ display: 'none' }} onChange={e => {
+                      if (e.target.files[0]) {
+                        setJobParams(p => ({ ...p, upload_file: e.target.files[0].name, action: 'upload' }));
+                        addToast('Upload queued. File transfers require agent v2+ support.', 'success');
+                      }
+                    }}/>
+                  </label>
+                </div>
+                <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 6 }}>
+                  Click folders to navigate. Press Enter or Execute to browse the current path.
+                </div>
+              </div>
+            );
+          })()}
 
           <div className="btn-group" style={{ justifyContent: 'flex-end', marginBottom: modalJobs.length > 0 ? 16 : 0 }}>
             <button className="btn" onClick={closeModal}>Close</button>
@@ -1543,11 +1674,40 @@ function JobsPage({ hosts, addToast }) {
 
       {viewJob && (
         <Modal title={`Job: ${viewJob.type}`} onClose={() => setViewJob(null)}>
-          <div style={{ marginBottom: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
             <StatusBadge status={viewJob.status}/>
-            <span style={{ marginLeft: 8, color: 'var(--text-dim)', fontSize: 12 }}>
+            <span style={{ color: 'var(--text-dim)', fontSize: 12 }}>
               {viewJob.hostname} &middot; {viewJob.created_at}
             </span>
+            <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+              {['pending','sent'].includes(viewJob.status) && (
+                <button className="btn btn-sm" onClick={async () => {
+                  await cancelJob(viewJob.id);
+                  setViewJob(v => ({ ...v, status: 'cancelled' }));
+                }}>Cancel</button>
+              )}
+              {viewJob.status === 'running' && (
+                <button className="btn btn-sm btn-danger" onClick={async () => {
+                  await api(`/api/jobs/${viewJob.id}/cancel`, { method: 'POST' });
+                  addToast('Kill signal sent');
+                  setViewJob(v => ({ ...v, status: 'cancelled' }));
+                  loadJobs();
+                }}>
+                  <Icons.Stop/> Kill
+                </button>
+              )}
+              {(viewJob.result || viewJob.error) && (
+                <button className="btn btn-sm" onClick={() => {
+                  const blob = new Blob([viewJob.result || viewJob.error], { type: 'text/plain' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url; a.download = `${viewJob.hostname}-${viewJob.type}-${viewJob.id.slice(0,8)}.log`;
+                  a.click(); URL.revokeObjectURL(url);
+                }}>
+                  <Icons.Download/> Download Log
+                </button>
+              )}
+            </div>
           </div>
           {viewJob.params && viewJob.params !== '{}' && (
             <div style={{ marginBottom: 12 }}>
@@ -1678,58 +1838,149 @@ function SchedulesPage({ hosts, addToast }) {
           </div>
           <div className="form-group" style={{ marginBottom: 12 }}>
             <label className="form-label">Schedule</label>
-            <div className="form-row" style={{ marginBottom: 4 }}>
-              <div className="form-group">
-                <select className="select input" style={{ fontSize: 12 }}
-                  value={form._cronPreset || 'custom'}
-                  onChange={e => {
-                    const presets = {
-                      'daily_1am': '0 1 * * *',
-                      'daily_3am': '0 3 * * *',
-                      'daily_6am': '0 6 * * *',
-                      'daily_noon': '0 12 * * *',
-                      'weekly_sun_1am': '0 1 * * 0',
-                      'weekly_sun_3am': '0 3 * * 0',
-                      'weekly_mon_6am': '0 6 * * 1',
-                      'weekly_fri_6pm': '0 18 * * 5',
-                      'monthly_1st_1am': '0 1 1 * *',
-                      'every_6h': '0 */6 * * *',
-                      'every_12h': '0 */12 * * *',
-                      'every_30min': '*/30 * * * *',
-                      'hourly': '0 * * * *',
-                    };
-                    const val = presets[e.target.value] || form.cron;
-                    setForm(f => ({ ...f, cron: val, _cronPreset: e.target.value }));
-                  }}>
-                  <option value="custom">Custom cron expression</option>
-                  <optgroup label="Daily">
-                    <option value="daily_1am">Daily at 1:00 AM</option>
-                    <option value="daily_3am">Daily at 3:00 AM</option>
-                    <option value="daily_6am">Daily at 6:00 AM</option>
-                    <option value="daily_noon">Daily at 12:00 PM</option>
-                  </optgroup>
-                  <optgroup label="Weekly">
-                    <option value="weekly_sun_1am">Every Sunday at 1:00 AM</option>
-                    <option value="weekly_sun_3am">Every Sunday at 3:00 AM</option>
-                    <option value="weekly_mon_6am">Every Monday at 6:00 AM</option>
-                    <option value="weekly_fri_6pm">Every Friday at 6:00 PM</option>
-                  </optgroup>
-                  <optgroup label="Monthly">
-                    <option value="monthly_1st_1am">1st of every month at 1:00 AM</option>
-                  </optgroup>
-                  <optgroup label="Frequent">
-                    <option value="hourly">Every hour</option>
-                    <option value="every_30min">Every 30 minutes</option>
-                    <option value="every_6h">Every 6 hours</option>
-                    <option value="every_12h">Every 12 hours</option>
-                  </optgroup>
-                </select>
-              </div>
+
+            {/* Frequency selector */}
+            <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
+              {['daily','weekly','monthly','interval','custom'].map(freq => (
+                <div key={freq} onClick={() => {
+                  const defaults = { daily: '0 1 * * *', weekly: '0 1 * * 0', monthly: '0 1 1 * *', interval: '0 */6 * * *' };
+                  setForm(f => ({ ...f, _freq: freq, cron: defaults[freq] || f.cron, _cronPreset: freq === 'custom' ? 'custom' : freq }));
+                }} style={{
+                  padding: '5px 12px', borderRadius: 4, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                  background: (form._freq || 'custom') === freq ? 'var(--accent)' : 'var(--bg-input)',
+                  color: (form._freq || 'custom') === freq ? 'white' : 'var(--text-secondary)',
+                  border: `1px solid ${(form._freq || 'custom') === freq ? 'var(--accent)' : 'var(--border)'}`
+                }}>{freq.charAt(0).toUpperCase() + freq.slice(1)}</div>
+              ))}
             </div>
-            <input className="input mono" placeholder="0 1 * * 0" style={{ fontSize: 12 }}
-              value={form.cron} onChange={e => setForm(f => ({ ...f, cron: e.target.value, _cronPreset: 'custom' }))}/>
+
+            {/* Time picker - shown for daily/weekly/monthly */}
+            {['daily','weekly','monthly'].includes(form._freq) && (
+              <div className="form-row" style={{ marginBottom: 10 }}>
+                <div className="form-group">
+                  <label className="form-label" style={{ fontSize: 10 }}>Hour</label>
+                  <select className="select input" style={{ fontSize: 12 }} value={(() => {
+                    const parts = (form.cron || '').split(' ');
+                    return parts[1] || '1';
+                  })()} onChange={e => {
+                    const parts = (form.cron || '0 1 * * *').split(' ');
+                    parts[1] = e.target.value;
+                    setForm(f => ({ ...f, cron: parts.join(' ') }));
+                  }}>
+                    {Array.from({length: 24}, (_, i) => (
+                      <option key={i} value={String(i)}>{i === 0 ? '12 AM' : i < 12 ? `${i} AM` : i === 12 ? '12 PM' : `${i-12} PM`}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label className="form-label" style={{ fontSize: 10 }}>Minute</label>
+                  <select className="select input" style={{ fontSize: 12 }} value={(() => {
+                    const parts = (form.cron || '').split(' ');
+                    return parts[0] || '0';
+                  })()} onChange={e => {
+                    const parts = (form.cron || '0 1 * * *').split(' ');
+                    parts[0] = e.target.value;
+                    setForm(f => ({ ...f, cron: parts.join(' ') }));
+                  }}>
+                    {[0,5,10,15,20,25,30,35,40,45,50,55].map(m => (
+                      <option key={m} value={String(m)}>{String(m).padStart(2,'0')}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
+
+            {/* Day picker for weekly */}
+            {form._freq === 'weekly' && (
+              <div style={{ marginBottom: 10 }}>
+                <label className="form-label" style={{ fontSize: 10, marginBottom: 4 }}>Day of Week</label>
+                <div style={{ display: 'flex', gap: 4 }}>
+                  {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map((d, i) => {
+                    const parts = (form.cron || '0 1 * * 0').split(' ');
+                    const selected = (parts[4] || '0').split(',').includes(String(i));
+                    return (
+                      <div key={i} onClick={() => {
+                        const parts = (form.cron || '0 1 * * 0').split(' ');
+                        let days = (parts[4] || '0').split(',').filter(x => x !== '*' && x !== '');
+                        if (selected) days = days.filter(x => x !== String(i));
+                        else days.push(String(i));
+                        if (days.length === 0) days = ['0'];
+                        parts[4] = days.join(',');
+                        setForm(f => ({ ...f, cron: parts.join(' ') }));
+                      }} style={{
+                        width: 36, height: 32, borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                        background: selected ? 'var(--accent)' : 'var(--bg-input)',
+                        color: selected ? 'white' : 'var(--text-secondary)',
+                        border: `1px solid ${selected ? 'var(--accent)' : 'var(--border)'}`
+                      }}>{d}</div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Day of month for monthly */}
+            {form._freq === 'monthly' && (
+              <div style={{ marginBottom: 10 }}>
+                <label className="form-label" style={{ fontSize: 10, marginBottom: 4 }}>Day of Month</label>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
+                  {Array.from({length: 28}, (_, i) => i + 1).map(d => {
+                    const parts = (form.cron || '0 1 1 * *').split(' ');
+                    const selected = parts[2] === String(d);
+                    return (
+                      <div key={d} onClick={() => {
+                        const parts = (form.cron || '0 1 1 * *').split(' ');
+                        parts[2] = String(d);
+                        setForm(f => ({ ...f, cron: parts.join(' ') }));
+                      }} style={{
+                        width: 28, height: 28, borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: 10, fontWeight: 600, cursor: 'pointer',
+                        background: selected ? 'var(--accent)' : 'var(--bg-input)',
+                        color: selected ? 'white' : 'var(--text-secondary)',
+                        border: `1px solid ${selected ? 'var(--accent)' : 'var(--border)'}`
+                      }}>{d}</div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Interval picker */}
+            {form._freq === 'interval' && (
+              <div className="form-row" style={{ marginBottom: 10 }}>
+                <div className="form-group">
+                  <label className="form-label" style={{ fontSize: 10 }}>Every</label>
+                  <select className="select input" style={{ fontSize: 12 }} value={form._interval || '6h'} onChange={e => {
+                    const map = { '15m': '*/15 * * * *', '30m': '*/30 * * * *', '1h': '0 * * * *', '2h': '0 */2 * * *', '4h': '0 */4 * * *', '6h': '0 */6 * * *', '8h': '0 */8 * * *', '12h': '0 */12 * * *' };
+                    setForm(f => ({ ...f, _interval: e.target.value, cron: map[e.target.value] || f.cron }));
+                  }}>
+                    <option value="15m">15 minutes</option>
+                    <option value="30m">30 minutes</option>
+                    <option value="1h">1 hour</option>
+                    <option value="2h">2 hours</option>
+                    <option value="4h">4 hours</option>
+                    <option value="6h">6 hours</option>
+                    <option value="8h">8 hours</option>
+                    <option value="12h">12 hours</option>
+                  </select>
+                </div>
+              </div>
+            )}
+
+            {/* Raw cron display/edit */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
+              <code style={{ fontSize: 12, color: 'var(--accent)', background: 'var(--bg-input)', padding: '4px 10px', borderRadius: 4, border: '1px solid var(--border)', flex: 1, fontFamily: 'JetBrains Mono, monospace' }}>
+                {form.cron || '0 1 * * 0'}
+              </code>
+              {form._freq !== 'custom' && <span style={{ fontSize: 10, color: 'var(--text-dim)' }}>auto-generated</span>}
+            </div>
+            {form._freq === 'custom' && (
+              <input className="input mono" placeholder="0 1 * * 0" style={{ fontSize: 12, marginTop: 6 }}
+                value={form.cron} onChange={e => setForm(f => ({ ...f, cron: e.target.value }))}/>
+            )}
             <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 4 }}>
-              Format: min hour day month weekday
+              Works for both Linux cron and Windows Task Scheduler. Format: min hour day month weekday
             </div>
           </div>
 
@@ -1825,7 +2076,12 @@ function CredentialsPage({ hosts, addToast }) {
             <div className="form-group">
               <label className="form-label">Host</label>
               <select className="select input" value={form.host_id}
-                onChange={e => setForm(f => ({ ...f, host_id: e.target.value }))}>
+                onChange={e => {
+                  const hid = e.target.value;
+                  const h = hosts.find(x => x.id === hid);
+                  const detectedDomain = h?.system_info?.domain || '';
+                  setForm(f => ({ ...f, host_id: hid, domain: detectedDomain }));
+                }}>
                 <option value="">Select host...</option>
                 {hosts.map(h => <option key={h.id} value={h.id}>{h.hostname}</option>)}
               </select>
@@ -1834,7 +2090,7 @@ function CredentialsPage({ hosts, addToast }) {
           <div className="form-row">
             <div className="form-group">
               <label className="form-label">Username</label>
-              <input className="input" placeholder="SLOBAL\Administrator"
+              <input className="input" placeholder="Administrator"
                 value={form.username} onChange={e => setForm(f => ({ ...f, username: e.target.value }))}/>
             </div>
             <div className="form-group">
@@ -1843,12 +2099,110 @@ function CredentialsPage({ hosts, addToast }) {
                 value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))}/>
             </div>
           </div>
+          <div className="form-row">
+            <div className="form-group">
+              <label className="form-label">Domain {form.domain && <span style={{ color: 'var(--green)', fontSize: 10 }}>(auto-detected)</span>}</label>
+              <input className="input" placeholder="e.g. slobal.local"
+                value={form.domain || ''} onChange={e => setForm(f => ({ ...f, domain: e.target.value }))}/>
+            </div>
+          </div>
           <div className="btn-group" style={{ justifyContent: 'flex-end', marginTop: 16 }}>
             <button className="btn" onClick={() => setShowAdd(false)}>Cancel</button>
             <button className="btn btn-primary" onClick={save}>Save</button>
           </div>
         </Modal>
       )}
+    </div>
+  );
+}
+
+// ── Cron/Task List Component ─────────────────────────────
+function CronTaskList({ tasks, isWindows, onRefresh, onAction, onRunNow, hostname }) {
+  const [expanded, setExpanded] = useState(null);
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <span style={{ fontSize: 13, fontWeight: 600 }}>{tasks.length} {isWindows ? 'Scheduled Tasks' : 'Crons / Timers'}</span>
+        <div className="btn-group">
+          <button className="btn btn-sm" onClick={onRefresh}><Icons.RefreshCw/> Refresh</button>
+          <button className="btn btn-sm" onClick={() => {
+            const text = isWindows ? JSON.stringify(tasks, null, 2) : tasks.map(t => t.raw).join('\n');
+            const blob = new Blob([text], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a'); a.href = url;
+            a.download = `${hostname}-crons.txt`; a.click(); URL.revokeObjectURL(url);
+          }}><Icons.Download/> Download</button>
+        </div>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {tasks.map((t, i) => {
+          const name = isWindows ? (t.TaskName || t.Name || `Task ${i}`) : (t.name || `Entry ${i}`);
+          const isExp = expanded === i;
+          const stateReady = isWindows ? (t.State === 'Ready' || t.State === 3 || t.State === 'ready') : (t.type === 'timer');
+          return (
+            <div key={i} style={{
+              background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 6,
+              overflow: 'hidden'
+            }}>
+              <div onClick={() => setExpanded(isExp ? null : i)} style={{
+                display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', cursor: 'pointer',
+                borderLeft: `3px solid ${stateReady ? 'var(--green)' : 'var(--text-dim)'}`
+              }}>
+                <span style={{ fontSize: 12, fontWeight: 600, flex: 1, fontFamily: 'JetBrains Mono, monospace' }}>{name}</span>
+                {isWindows && <StatusBadge status={stateReady ? 'online' : 'offline'}/>}
+                {!isWindows && t.type === 'timer' && <span className="badge badge-running"><span className="badge-dot"/>timer</span>}
+                {!isWindows && t.type === 'cron' && <span className="badge badge-pending"><span className="badge-dot"/>cron</span>}
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{
+                  width: 14, height: 14, color: 'var(--text-dim)',
+                  transform: isExp ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.15s'
+                }}><polyline points="6 9 12 15 18 9"/></svg>
+              </div>
+              {isExp && (
+                <div style={{ padding: '8px 12px', borderTop: '1px solid var(--border)', background: 'var(--bg-card)' }}>
+                  {isWindows && (
+                    <>
+                      <div style={{ fontSize: 11, marginBottom: 4 }}><span style={{ color: 'var(--text-dim)' }}>Path: </span><span className="mono">{t.TaskPath || ''}</span></div>
+                      <div style={{ fontSize: 11, marginBottom: 4 }}><span style={{ color: 'var(--text-dim)' }}>State: </span>{t.State}</div>
+                      <div style={{ fontSize: 11, marginBottom: 4 }}><span style={{ color: 'var(--text-dim)' }}>Next Run: </span>{t.NextRun ? new Date(t.NextRun).toLocaleString() : 'N/A'}</div>
+                      {t.LastRun && <div style={{ fontSize: 11, marginBottom: 4 }}><span style={{ color: 'var(--text-dim)' }}>Last Run: </span>{new Date(t.LastRun).toLocaleString()}</div>}
+                      {t.Description && <div style={{ fontSize: 11, marginBottom: 4 }}><span style={{ color: 'var(--text-dim)' }}>Description: </span>{t.Description}</div>}
+                    </>
+                  )}
+                  {!isWindows && (
+                    <>
+                      {t.schedule && <div style={{ fontSize: 11, marginBottom: 4 }}><span style={{ color: 'var(--text-dim)' }}>Schedule: </span><span className="mono">{t.schedule}</span></div>}
+                      {t.command && <div style={{ fontSize: 11, marginBottom: 4 }}><span style={{ color: 'var(--text-dim)' }}>Command: </span><span className="mono" style={{ wordBreak: 'break-all' }}>{t.command}</span></div>}
+                      {t.details && <div style={{ fontSize: 11, marginBottom: 4 }}><span style={{ color: 'var(--text-dim)' }}>Details: </span>{t.details}</div>}
+                      <div style={{ fontSize: 10, color: 'var(--text-dim)', marginBottom: 4, fontFamily: 'JetBrains Mono, monospace' }}>{t.raw}</div>
+                    </>
+                  )}
+                  <div className="btn-group" style={{ marginTop: 8 }}>
+                    {onRunNow && (isWindows || (t.type === 'timer')) && (
+                      <button className="btn btn-sm btn-primary" onClick={(e) => { e.stopPropagation(); onRunNow(isWindows ? (t.TaskPath || '') + (t.TaskName || '') : t.name); }}>
+                        <Icons.Play/> Run Now
+                      </button>
+                    )}
+                    {onAction && isWindows && (
+                      <>
+                        <button className="btn btn-sm" onClick={(e) => { e.stopPropagation(); onAction(t.TaskPath ? t.TaskPath + t.TaskName : t.TaskName, 'enable'); }}>Enable</button>
+                        <button className="btn btn-sm" onClick={(e) => { e.stopPropagation(); onAction(t.TaskPath ? t.TaskPath + t.TaskName : t.TaskName, 'disable'); }}>Disable</button>
+                      </>
+                    )}
+                    {onAction && !isWindows && t.type === 'timer' && (
+                      <>
+                        <button className="btn btn-sm" onClick={(e) => { e.stopPropagation(); onAction(t.name, 'start'); }}>Start</button>
+                        <button className="btn btn-sm" onClick={(e) => { e.stopPropagation(); onAction(t.name, 'stop'); }}>Stop</button>
+                        <button className="btn btn-sm" onClick={(e) => { e.stopPropagation(); onAction(t.name, 'restart'); }}>Restart</button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -1878,7 +2232,7 @@ function HostDetailModal({ host, onClose, addToast }) {
   };
 
   const lastJobOfType = (type) => jobs.find(j => j.type === type && j.status === 'completed');
-  const ramPercent = info.ram_mb && info.ram_available_mb ? Math.round(((info.ram_mb - info.ram_available_mb) / info.ram_mb) * 100) : null;
+  const ramPercent = info.ram_mb != null && info.ram_available_mb != null && info.ram_mb > 0 ? Math.round(((info.ram_mb - info.ram_available_mb) / info.ram_mb) * 100) : null;
   const diskPercent = info.disk_total_gb && info.disk_free_gb ? Math.round(((info.disk_total_gb - info.disk_free_gb) / info.disk_total_gb) * 100) : null;
 
   const ProgressBar = ({ percent, color }) => (
@@ -1908,7 +2262,7 @@ function HostDetailModal({ host, onClose, addToast }) {
               {host.os} &middot; {host.ip || info.ip} &middot; {info.platform || ''}
             </div>
           </div>
-          <button className="btn btn-sm" onClick={onClose}><Icons.X/></button>
+          <button className="btn-close" onClick={onClose}><Icons.X/></button>
         </div>
 
         {/* Tabs */}
@@ -2064,7 +2418,7 @@ function HostDetailModal({ host, onClose, addToast }) {
                   <StatusBadge status={viewJob.status}/>
                   <span className="mono" style={{ fontSize: 12 }}>{viewJob.type}</span>
                   <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>{viewJob.created_at}</span>
-                  <button className="btn btn-sm" style={{ marginLeft: 'auto' }} onClick={() => setViewJob(null)}><Icons.X/></button>
+                  <button className="btn-close" style={{ marginLeft: 'auto' }} onClick={() => setViewJob(null)}><Icons.X/></button>
                 </div>
                 {viewJob.result && <div className="output-log">{viewJob.result}</div>}
                 {viewJob.error && <div className="output-log" style={{ borderColor: 'var(--red)' }}>{viewJob.error}</div>}
@@ -2089,40 +2443,78 @@ function HostDetailModal({ host, onClose, addToast }) {
                 );
               }
 
-              // Try to parse Windows JSON output
+              // Windows tasks - clickable with details
               if (isWindows) {
                 try {
                   const tasks = JSON.parse(cronJob.result);
                   const taskList = Array.isArray(tasks) ? tasks : [tasks];
                   return (
-                    <div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
-                        <span style={{ fontSize: 13, fontWeight: 600 }}>{taskList.length} Scheduled Tasks</span>
-                        <button className="btn btn-sm" onClick={() => runJob('list_crons')}><Icons.RefreshCw/> Refresh</button>
-                      </div>
-                      <div className="table-wrap">
-                        <table style={{ fontSize: 11 }}>
-                          <thead><tr><th>Task Name</th><th>Path</th><th>State</th><th>Next Run</th></tr></thead>
-                          <tbody>
-                            {taskList.map((t, i) => (
-                              <tr key={i}>
-                                <td style={{ fontWeight: 600 }}>{t.TaskName}</td>
-                                <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 10, color: 'var(--text-dim)' }}>{t.TaskPath}</td>
-                                <td><StatusBadge status={t.State === 'Ready' || t.State === 3 ? 'online' : 'offline'}/></td>
-                                <td style={{ fontSize: 10 }}>{t.NextRun ? new Date(t.NextRun).toLocaleString() : '\u2014'}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
+                    <CronTaskList
+                      tasks={taskList}
+                      isWindows={true}
+                      onRefresh={() => runJob('list_crons')}
+                      onAction={(taskName, action) => runJob('custom_command', {
+                        command: `schtasks /Change /TN "${taskName}" /${action === 'enable' ? 'ENABLE' : 'DISABLE'}`
+                      })}
+                      onRunNow={(taskName) => runJob('custom_command', {
+                        command: `schtasks /Run /TN "${taskName}"`
+                      })}
+                      hostname={host.hostname}
+                    />
                   );
                 } catch(e) {
-                  // Fall through to raw display
+                  // Fall through to raw
                 }
               }
 
-              // Raw output for Linux or unparseable Windows
+              // Linux - parse crontab and systemd timers
+              const lines = (cronJob.result || '').split('\n');
+              const cronEntries = [];
+              let section = '';
+              lines.forEach(line => {
+                const trimmed = line.trim();
+                if (trimmed.startsWith('=== ') || trimmed.startsWith('--- ') || trimmed.startsWith('UNIT ') || trimmed === '') {
+                  if (trimmed.includes('crontab') || trimmed.includes('Crontab')) section = 'crontab';
+                  else if (trimmed.includes('timer') || trimmed.includes('Timer')) section = 'timer';
+                  return;
+                }
+                if (trimmed.startsWith('#') || trimmed === '') return;
+                if (section === 'timer' || trimmed.includes('.timer')) {
+                  const parts = trimmed.split(/\s+/);
+                  cronEntries.push({ type: 'timer', name: parts[0] || trimmed, raw: trimmed, details: parts.slice(1).join(' ') });
+                } else if (/^[\d\*\/\-\,]+\s/.test(trimmed)) {
+                  const parts = trimmed.split(/\s+/);
+                  const schedule = parts.slice(0, 5).join(' ');
+                  const command = parts.slice(5).join(' ');
+                  cronEntries.push({ type: 'cron', name: command.split('/').pop() || command, raw: trimmed, schedule, command });
+                } else {
+                  cronEntries.push({ type: 'other', name: trimmed.slice(0, 40), raw: trimmed, details: trimmed });
+                }
+              });
+
+              if (cronEntries.length > 0) {
+                return (
+                  <CronTaskList
+                    tasks={cronEntries}
+                    isWindows={false}
+                    onRefresh={() => runJob('list_crons')}
+                    onAction={(name, action) => {
+                      if (name.includes('.timer')) {
+                        runJob('custom_command', { command: `systemctl ${action} ${name}` });
+                      }
+                    }}
+                    onRunNow={(name) => {
+                      if (name.includes('.timer')) {
+                        const svcName = name.replace('.timer', '.service');
+                        runJob('custom_command', { command: `systemctl start ${svcName}` });
+                      }
+                    }}
+                    hostname={host.hostname}
+                  />
+                );
+              }
+
+              // Fallback raw
               return (
                 <div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
@@ -2134,7 +2526,7 @@ function HostDetailModal({ host, onClose, addToast }) {
                         const url = URL.createObjectURL(blob);
                         const a = document.createElement('a'); a.href = url;
                         a.download = `${host.hostname}-crons.txt`; a.click(); URL.revokeObjectURL(url);
-                      }}>Download</button>
+                      }}><Icons.Download/> Download</button>
                     </div>
                   </div>
                   <div className="output-log" style={{ maxHeight: 500 }}>{cronJob.result}</div>
@@ -2147,54 +2539,54 @@ function HostDetailModal({ host, onClose, addToast }) {
         {/* Quick Actions Tab */}
         {activeTab === 'quick actions' && (
           <div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6 }}>
               {isWindows && (
                 <>
-                  <button className="btn" onClick={() => runJob('windows_update', { reboot: false })} style={{ justifyContent: 'center', padding: 12 }}>
-                    <Icons.Shield/> Windows Update (no reboot)
+                  <button className="btn" onClick={() => runJob('windows_update', { reboot: false })} style={{ justifyContent: 'center', padding: '8px 6px', fontSize: 11 }}>
+                    <Icons.Shield/> WinUpdate
                   </button>
-                  <button className="btn" onClick={() => runJob('windows_update', { reboot: true })} style={{ justifyContent: 'center', padding: 12 }}>
-                    <Icons.Shield/> Windows Update + Reboot
+                  <button className="btn" onClick={() => runJob('windows_update', { reboot: true })} style={{ justifyContent: 'center', padding: '8px 6px', fontSize: 11 }}>
+                    <Icons.Shield/> WinUpdate+Reboot
                   </button>
                 </>
               )}
               {isLinux && (
                 <>
-                  <button className="btn" onClick={() => runJob('linux_update', { reboot: false })} style={{ justifyContent: 'center', padding: 12 }}>
+                  <button className="btn" onClick={() => runJob('linux_update', { reboot: false })} style={{ justifyContent: 'center', padding: '8px 6px', fontSize: 11 }}>
                     <Icons.Download/> Linux Update
                   </button>
-                  <button className="btn" onClick={() => runJob('linux_update', { reboot: true })} style={{ justifyContent: 'center', padding: 12 }}>
-                    <Icons.Download/> Linux Update + Reboot
+                  <button className="btn" onClick={() => runJob('linux_update', { reboot: true })} style={{ justifyContent: 'center', padding: '8px 6px', fontSize: 11 }}>
+                    <Icons.Download/> Update+Reboot
                   </button>
                 </>
               )}
               {isLinux && info.docker_running != null && (
-                <button className="btn" onClick={() => runJob('docker_update')} style={{ justifyContent: 'center', padding: 12 }}>
-                  <Icons.Box/> Update Docker Containers
+                <button className="btn" onClick={() => runJob('docker_update')} style={{ justifyContent: 'center', padding: '8px 6px', fontSize: 11 }}>
+                  <Icons.Box/> Docker Update
                 </button>
               )}
-              <button className="btn" onClick={() => runJob('list_crons')} style={{ justifyContent: 'center', padding: 12 }}>
-                <Icons.List/> {isWindows ? 'List Scheduled Tasks' : 'List Crons/Timers'}
+              <button className="btn" onClick={() => runJob('list_crons')} style={{ justifyContent: 'center', padding: '8px 6px', fontSize: 11 }}>
+                <Icons.List/> {isWindows ? 'Sched Tasks' : 'Crons/Timers'}
               </button>
-              <button className="btn" onClick={() => runJob('disk_cleanup')} style={{ justifyContent: 'center', padding: 12 }}>
+              <button className="btn" onClick={() => runJob('disk_cleanup')} style={{ justifyContent: 'center', padding: '8px 6px', fontSize: 11 }}>
                 <Icons.Trash/> Disk Cleanup
               </button>
-              <button className="btn" onClick={() => runJob('reboot', { delay: 30 })} style={{ justifyContent: 'center', padding: 12 }}>
-                <Icons.Power/> Reboot (30s delay)
+              <button className="btn" onClick={() => runJob('reboot', { delay: 30 })} style={{ justifyContent: 'center', padding: '8px 6px', fontSize: 11 }}>
+                <Icons.Power/> Reboot (30s)
               </button>
               {isLinux && (
-                <button className="btn" onClick={() => runJob('backup', { script: '/root/proxmox-vm-backup.sh' })} style={{ justifyContent: 'center', padding: 12 }}>
-                  <Icons.HardDrive/> Run Backup Script
+                <button className="btn" onClick={() => runJob('backup', { script: '/root/proxmox-vm-backup.sh' })} style={{ justifyContent: 'center', padding: '8px 6px', fontSize: 11 }}>
+                  <Icons.HardDrive/> Run Backup
                 </button>
               )}
               {isWindows && (
-                <button className="btn" onClick={() => runJob('disable_autologin')} style={{ justifyContent: 'center', padding: 12 }}>
-                  <Icons.Key/> Disable Auto-Login
+                <button className="btn" onClick={() => runJob('disable_autologin')} style={{ justifyContent: 'center', padding: '8px 6px', fontSize: 11 }}>
+                  <Icons.Key/> Disable AutoLogin
                 </button>
               )}
             </div>
-            <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 12 }}>
-              Jobs dispatched from here appear in the Jobs tab above. Click a job to view output.
+            <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 8 }}>
+              Jobs dispatched from here appear in the Jobs tab above.
             </div>
           </div>
         )}
