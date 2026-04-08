@@ -836,8 +836,24 @@ function ActionsPage({ hosts, addToast }) {
   const [showJobModal, setShowJobModal] = useState(null);
   const [jobParams, setJobParams] = useState({});
   const [groups, setGroups] = useState([]);
+  const [trackedJobs, setTrackedJobs] = useState([]);
+  const outputRef = useRef(null);
 
   useEffect(() => { api('/api/groups').then(setGroups).catch(() => {}); }, []);
+
+  // Poll tracked jobs for updates
+  useEffect(() => {
+    if (trackedJobs.length === 0) return;
+    const hasActive = trackedJobs.some(j => ['pending','sent','running'].includes(j.status));
+    if (!hasActive) return;
+    const i = setInterval(async () => {
+      const updated = await Promise.all(
+        trackedJobs.map(j => api(`/api/jobs/${j.id}`).catch(() => j))
+      );
+      setTrackedJobs(updated);
+    }, 2000);
+    return () => clearInterval(i);
+  }, [trackedJobs]);
 
   const toggleHost = (id) => {
     setSelectedHosts(prev =>
@@ -901,14 +917,19 @@ function ActionsPage({ hosts, addToast }) {
       }
     });
 
+    // Track dispatched jobs
+    const newJobs = res.map(j => ({ ...j, type: jobType, status: 'pending', result: '', error: '', hostname: hosts.find(h => h.id === j.host_id)?.hostname || j.host_id }));
+    setTrackedJobs(prev => [...newJobs, ...prev]);
     addToast(`Dispatched ${jobType} to ${res.length} host(s)`);
     setShowJobModal(null);
     setJobParams({});
+    setTimeout(() => { if (outputRef.current) outputRef.current.scrollIntoView({ behavior: 'smooth' }); }, 100);
   };
 
   const submitChain = async () => {
+    const newJobs = [];
     for (const hid of selectedHosts) {
-      await api('/api/chains/proxmox-backup-all', {
+      const res = await api('/api/chains/proxmox-backup-all', {
         method: 'POST',
         body: {
           host_ids: [hid],
@@ -916,10 +937,13 @@ function ActionsPage({ hosts, addToast }) {
           reboot_after: jobParams.reboot_after || false
         }
       });
+      res.forEach(j => newJobs.push({ ...j, type: 'backup', status: 'pending', result: '', error: '', hostname: hosts.find(h => h.id === j.host_id)?.hostname || j.host_id }));
     }
+    setTrackedJobs(prev => [...newJobs, ...prev]);
     addToast(`Backup chain dispatched to ${selectedHosts.length} host(s)`);
     setShowJobModal(null);
     setJobParams({});
+    setTimeout(() => { if (outputRef.current) outputRef.current.scrollIntoView({ behavior: 'smooth' }); }, 100);
   };
 
   return (
@@ -1152,6 +1176,58 @@ function ActionsPage({ hosts, addToast }) {
             <button className="btn btn-primary" onClick={submitChain}><Icons.Play/> Run Chain</button>
           </div>
         </Modal>
+      )}
+
+      {/* Live Output Panel */}
+      {trackedJobs.length > 0 && (
+        <div ref={outputRef} className="card" style={{ marginTop: 8 }}>
+          <div className="card-header">
+            <span className="card-title">Job Output ({trackedJobs.filter(j => ['pending','sent','running'].includes(j.status)).length} active)</span>
+            <div className="btn-group">
+              <button className="btn btn-sm" onClick={() => setTrackedJobs([])}>Clear All</button>
+            </div>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {trackedJobs.map(job => (
+              <div key={job.id} style={{
+                background: 'var(--bg-primary)', border: '1px solid var(--border)',
+                borderRadius: 6, padding: 12,
+                borderLeftColor: job.status === 'completed' ? 'var(--green)' : job.status === 'failed' ? 'var(--red)' : job.status === 'running' ? 'var(--accent)' : 'var(--yellow)',
+                borderLeftWidth: 3
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                  <StatusBadge status={job.status}/>
+                  <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 12, color: 'var(--text-primary)' }}>
+                    {job.type}
+                  </span>
+                  <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>
+                    {job.hostname}
+                  </span>
+                  {['pending','sent'].includes(job.status) && (
+                    <button className="btn btn-sm" style={{ marginLeft: 'auto', padding: '2px 8px' }}
+                      onClick={async () => {
+                        await api(`/api/jobs/${job.id}/cancel`, { method: 'POST' });
+                        setTrackedJobs(prev => prev.map(j => j.id === job.id ? { ...j, status: 'cancelled' } : j));
+                      }}>Cancel</button>
+                  )}
+                </div>
+                {(job.result || job.error) && (
+                  <div className="output-log" style={{
+                    maxHeight: 200, fontSize: 11,
+                    borderColor: job.error ? 'var(--red)' : 'var(--border)'
+                  }}>
+                    {job.result || job.error}
+                  </div>
+                )}
+                {['pending','sent','running'].includes(job.status) && !job.result && (
+                  <div style={{ fontSize: 11, color: 'var(--text-dim)', fontStyle: 'italic' }}>
+                    {job.status === 'running' ? 'Running, waiting for output...' : 'Queued, waiting for agent...'}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
       )}
     </div>
   );
