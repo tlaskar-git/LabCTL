@@ -595,6 +595,7 @@ function HostsPage({ hosts, onSelectHost, addToast }) {
   const [newGroupName, setNewGroupName] = useState('');
   const [newGroupColor, setNewGroupColor] = useState('#3b82f6');
   const [assigningHost, setAssigningHost] = useState(null);
+  const [selectedHost, setSelectedHost] = useState(null);
 
   const GROUP_COLORS = ['#3b82f6','#22c55e','#f97316','#a855f7','#ef4444','#eab308','#06b6d4','#ec4899'];
 
@@ -641,7 +642,8 @@ function HostsPage({ hosts, onSelectHost, addToast }) {
     const info = host.system_info || {};
     const isOnline = host.online || host.status === 'online';
     return (
-      <div key={host.id} className="host-card" style={{ position: 'relative' }}>
+      <div key={host.id} className="host-card" style={{ position: 'relative' }}
+        onClick={() => setSelectedHost(host)}>
         <div style={{ position: 'absolute', top: 8, right: 8 }}>
           <button className="btn btn-sm" style={{ padding: '2px 6px', fontSize: 10 }}
             onClick={(e) => { e.stopPropagation(); setAssigningHost(host); }}
@@ -818,6 +820,11 @@ function HostsPage({ hosts, onSelectHost, addToast }) {
             </div>
           )}
         </Modal>
+      )}
+
+      {/* Host Detail Modal */}
+      {selectedHost && (
+        <HostDetailModal host={selectedHost} onClose={() => setSelectedHost(null)} addToast={addToast}/>
       )}
     </div>
   );
@@ -1484,6 +1491,248 @@ function CredentialsPage({ hosts, addToast }) {
           </div>
         </Modal>
       )}
+    </div>
+  );
+}
+
+// ── Host Detail Modal ─────────────────────────────────────
+function HostDetailModal({ host, onClose, addToast }) {
+  const [jobs, setJobs] = useState([]);
+  const [activeTab, setActiveTab] = useState('overview');
+  const [viewJob, setViewJob] = useState(null);
+
+  const info = host.system_info || {};
+  const isOnline = host.online || host.status === 'online';
+  const isWindows = (host.os || '').toLowerCase().includes('windows');
+  const isLinux = !isWindows;
+
+  useEffect(() => {
+    api(`/api/jobs?host_id=${host.id}&limit=50`).then(setJobs).catch(() => {});
+    const i = setInterval(() => {
+      api(`/api/jobs?host_id=${host.id}&limit=50`).then(setJobs).catch(() => {});
+    }, 5000);
+    return () => clearInterval(i);
+  }, [host.id]);
+
+  const runJob = async (type, params = {}) => {
+    await api('/api/jobs', { method: 'POST', body: { host_id: host.id, type, params }});
+    addToast(`${type} dispatched to ${host.hostname}`);
+  };
+
+  const lastJobOfType = (type) => jobs.find(j => j.type === type && j.status === 'completed');
+  const ramPercent = info.ram_mb && info.ram_available_mb ? Math.round(((info.ram_mb - info.ram_available_mb) / info.ram_mb) * 100) : null;
+  const diskPercent = info.disk_total_gb && info.disk_free_gb ? Math.round(((info.disk_total_gb - info.disk_free_gb) / info.disk_total_gb) * 100) : null;
+
+  const ProgressBar = ({ percent, color }) => (
+    <div style={{ background: 'var(--bg-primary)', borderRadius: 4, height: 6, width: '100%', overflow: 'hidden' }}>
+      <div style={{ width: `${percent}%`, height: '100%', borderRadius: 4, background: percent > 85 ? 'var(--red)' : percent > 65 ? 'var(--yellow)' : color || 'var(--accent)', transition: 'width 0.3s' }}/>
+    </div>
+  );
+
+  const InfoRow = ({ label, value, mono }) => (
+    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--border)' }}>
+      <span style={{ fontSize: 12, color: 'var(--text-dim)' }}>{label}</span>
+      <span style={{ fontSize: 12, color: 'var(--text-primary)', fontFamily: mono ? 'JetBrains Mono, monospace' : 'inherit' }}>{value || '\u2014'}</span>
+    </div>
+  );
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 700, maxHeight: '90vh' }}>
+        {/* Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+              <span style={{ fontSize: 18, fontWeight: 700 }}>{host.hostname}</span>
+              <StatusBadge status={isOnline ? 'online' : 'offline'}/>
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--text-dim)', fontFamily: 'JetBrains Mono, monospace' }}>
+              {host.os} &middot; {host.ip || info.ip} &middot; {info.platform || ''}
+            </div>
+          </div>
+          <button className="btn btn-sm" onClick={onClose}><Icons.X/></button>
+        </div>
+
+        {/* Tabs */}
+        <div className="tabs">
+          {['overview','jobs','quick actions'].map(t => (
+            <div key={t} className={`tab ${activeTab === t ? 'active' : ''}`} onClick={() => setActiveTab(t)}>
+              {t.charAt(0).toUpperCase() + t.slice(1)}
+            </div>
+          ))}
+        </div>
+
+        {/* Overview Tab */}
+        {activeTab === 'overview' && (
+          <div>
+            {/* Resource bars */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+              <div className="card" style={{ padding: 12, marginBottom: 0 }}>
+                <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 6 }}>RAM Usage</div>
+                {ramPercent !== null ? (
+                  <>
+                    <ProgressBar percent={ramPercent}/>
+                    <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4 }}>
+                      {Math.round((info.ram_mb - info.ram_available_mb) / 1024 * 10) / 10}GB / {Math.round(info.ram_mb / 1024 * 10) / 10}GB ({ramPercent}%)
+                    </div>
+                  </>
+                ) : <span style={{ fontSize: 12, color: 'var(--text-dim)' }}>N/A</span>}
+              </div>
+              <div className="card" style={{ padding: 12, marginBottom: 0 }}>
+                <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 6 }}>Disk Usage</div>
+                {diskPercent !== null ? (
+                  <>
+                    <ProgressBar percent={diskPercent}/>
+                    <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4 }}>
+                      {Math.round((info.disk_total_gb - info.disk_free_gb) * 10) / 10}GB / {info.disk_total_gb}GB ({diskPercent}%)
+                    </div>
+                  </>
+                ) : <span style={{ fontSize: 12, color: 'var(--text-dim)' }}>N/A</span>}
+              </div>
+            </div>
+
+            {/* System Info */}
+            <div className="card" style={{ padding: 12 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, color: 'var(--text-secondary)' }}>System Info</div>
+              <InfoRow label="Hostname" value={info.hostname || host.hostname} mono/>
+              <InfoRow label="OS" value={host.os}/>
+              <InfoRow label="Platform" value={info.platform}/>
+              <InfoRow label="Architecture" value={info.arch}/>
+              <InfoRow label="CPU Cores" value={info.cpus} mono/>
+              <InfoRow label="IP Address" value={host.ip || info.ip} mono/>
+              <InfoRow label="Uptime" value={info.uptime_hours ? `${info.uptime_hours} hours (${Math.round(info.uptime_hours / 24)} days)` : null}/>
+              <InfoRow label="Last Seen" value={host.last_seen ? new Date(host.last_seen).toLocaleString() : null}/>
+              <InfoRow label="Agent ID" value={host.id} mono/>
+            </div>
+
+            {/* Docker containers */}
+            {info.docker_containers && info.docker_containers.length > 0 && (
+              <div className="card" style={{ padding: 12 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, color: 'var(--text-secondary)' }}>
+                  Docker Containers ({info.docker_running} running)
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {info.docker_containers.map(c => (
+                    <span key={c} style={{
+                      background: 'var(--bg-primary)', border: '1px solid var(--border)',
+                      borderRadius: 4, padding: '3px 8px', fontSize: 11,
+                      fontFamily: 'JetBrains Mono, monospace', color: 'var(--green)'
+                    }}>{c}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Last job results */}
+            {(() => {
+              const cronJob = lastJobOfType('list_crons');
+              if (!cronJob) return null;
+              return (
+                <div className="card" style={{ padding: 12 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, color: 'var(--text-secondary)' }}>
+                    {isWindows ? 'Scheduled Tasks' : 'Cron Jobs / Timers'}
+                  </div>
+                  <div className="output-log" style={{ maxHeight: 200 }}>{cronJob.result}</div>
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
+        {/* Jobs Tab */}
+        {activeTab === 'jobs' && (
+          <div>
+            <div className="table-wrap">
+              <table>
+                <thead><tr><th>Status</th><th>Type</th><th>Created</th><th>Actions</th></tr></thead>
+                <tbody>
+                  {jobs.slice(0, 30).map(job => (
+                    <tr key={job.id}>
+                      <td><StatusBadge status={job.status}/></td>
+                      <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11 }}>{job.type}</td>
+                      <td style={{ fontSize: 11, color: 'var(--text-dim)' }}>{job.created_at?.slice(0, 19)}</td>
+                      <td>
+                        <button className="btn btn-sm" onClick={() => setViewJob(job)}><Icons.Eye/></button>
+                      </td>
+                    </tr>
+                  ))}
+                  {jobs.length === 0 && (
+                    <tr><td colSpan={4} style={{ textAlign: 'center', padding: 20, color: 'var(--text-dim)' }}>No jobs for this host.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {viewJob && (
+              <div style={{ marginTop: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <StatusBadge status={viewJob.status}/>
+                  <span className="mono" style={{ fontSize: 12 }}>{viewJob.type}</span>
+                  <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>{viewJob.created_at}</span>
+                  <button className="btn btn-sm" style={{ marginLeft: 'auto' }} onClick={() => setViewJob(null)}><Icons.X/></button>
+                </div>
+                {viewJob.result && <div className="output-log">{viewJob.result}</div>}
+                {viewJob.error && <div className="output-log" style={{ borderColor: 'var(--red)' }}>{viewJob.error}</div>}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Quick Actions Tab */}
+        {activeTab === 'quick actions' && (
+          <div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              {isWindows && (
+                <>
+                  <button className="btn" onClick={() => runJob('windows_update', { reboot: false })} style={{ justifyContent: 'center', padding: 12 }}>
+                    <Icons.Shield/> Windows Update (no reboot)
+                  </button>
+                  <button className="btn" onClick={() => runJob('windows_update', { reboot: true })} style={{ justifyContent: 'center', padding: 12 }}>
+                    <Icons.Shield/> Windows Update + Reboot
+                  </button>
+                </>
+              )}
+              {isLinux && (
+                <>
+                  <button className="btn" onClick={() => runJob('linux_update', { reboot: false })} style={{ justifyContent: 'center', padding: 12 }}>
+                    <Icons.Download/> Linux Update
+                  </button>
+                  <button className="btn" onClick={() => runJob('linux_update', { reboot: true })} style={{ justifyContent: 'center', padding: 12 }}>
+                    <Icons.Download/> Linux Update + Reboot
+                  </button>
+                </>
+              )}
+              {isLinux && info.docker_running != null && (
+                <button className="btn" onClick={() => runJob('docker_update')} style={{ justifyContent: 'center', padding: 12 }}>
+                  <Icons.Box/> Update Docker Containers
+                </button>
+              )}
+              <button className="btn" onClick={() => runJob('list_crons')} style={{ justifyContent: 'center', padding: 12 }}>
+                <Icons.List/> {isWindows ? 'List Scheduled Tasks' : 'List Crons/Timers'}
+              </button>
+              <button className="btn" onClick={() => runJob('disk_cleanup')} style={{ justifyContent: 'center', padding: 12 }}>
+                <Icons.Trash/> Disk Cleanup
+              </button>
+              <button className="btn" onClick={() => runJob('reboot', { delay: 30 })} style={{ justifyContent: 'center', padding: 12 }}>
+                <Icons.Power/> Reboot (30s delay)
+              </button>
+              {isLinux && (
+                <button className="btn" onClick={() => runJob('backup', { script: '/root/proxmox-vm-backup.sh' })} style={{ justifyContent: 'center', padding: 12 }}>
+                  <Icons.HardDrive/> Run Backup Script
+                </button>
+              )}
+              {isWindows && (
+                <button className="btn" onClick={() => runJob('disable_autologin')} style={{ justifyContent: 'center', padding: 12 }}>
+                  <Icons.Key/> Disable Auto-Login
+                </button>
+              )}
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 12 }}>
+              Jobs dispatched from here appear in the Jobs tab above. Click a job to view output.
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
