@@ -347,15 +347,15 @@
     /* Action tiles */
     .actions-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-      gap: 12px;
+      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      gap: 10px;
       margin-bottom: 24px;
     }
     .action-tile {
       background: var(--bg-card);
       border: 1px solid var(--border);
       border-radius: 8px;
-      padding: 16px;
+      padding: 14px;
       cursor: pointer;
       transition: all 0.15s;
       text-align: center;
@@ -365,9 +365,9 @@
       background: var(--bg-card-hover);
       transform: translateY(-1px);
     }
-    .action-tile svg { margin-bottom: 8px; color: var(--accent); }
-    .action-tile-label { font-size: 13px; font-weight: 600; }
-    .action-tile-desc { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+    .action-tile svg { margin-bottom: 8px; color: var(--accent); width: 28px; height: 28px; }
+    .action-tile-label { font-size: 12px; font-weight: 600; }
+    .action-tile-desc { font-size: 10px; color: var(--text-dim); margin-top: 4px; }
 
     /* Page header */
     .page-header {
@@ -828,6 +828,9 @@ function ActionsPage({ hosts, addToast }) {
   const [selectedHosts, setSelectedHosts] = useState([]);
   const [showJobModal, setShowJobModal] = useState(null);
   const [jobParams, setJobParams] = useState({});
+  const [groups, setGroups] = useState([]);
+
+  useEffect(() => { api('/api/groups').then(setGroups).catch(() => {}); }, []);
 
   const toggleHost = (id) => {
     setSelectedHosts(prev =>
@@ -837,6 +840,44 @@ function ActionsPage({ hosts, addToast }) {
 
   const selectAll = () => setSelectedHosts(hosts.map(h => h.id));
   const selectNone = () => setSelectedHosts([]);
+  const selectGroup = (groupId) => {
+    const groupHostIds = hosts.filter(h => h.group_id === groupId).map(h => h.id);
+    setSelectedHosts(prev => {
+      const allSelected = groupHostIds.every(id => prev.includes(id));
+      if (allSelected) return prev.filter(id => !groupHostIds.includes(id));
+      return [...new Set([...prev, ...groupHostIds])];
+    });
+  };
+
+  // Group hosts for display
+  const grouped = {};
+  const ungrouped = [];
+  hosts.forEach(host => {
+    const gid = host.group_id;
+    if (gid && groups.find(g => g.id === gid)) {
+      if (!grouped[gid]) grouped[gid] = [];
+      grouped[gid].push(host);
+    } else {
+      ungrouped.push(host);
+    }
+  });
+
+  const renderHostChip = (host) => (
+    <div key={host.id}
+      className="checkbox-row"
+      onClick={() => toggleHost(host.id)}
+      style={{
+        background: selectedHosts.includes(host.id) ? 'rgba(59,130,246,0.1)' : 'var(--bg-input)',
+        border: `1px solid ${selectedHosts.includes(host.id) ? 'var(--accent)' : 'var(--border)'}`,
+        borderRadius: 6, padding: '6px 10px', fontSize: 12
+      }}>
+      <div className={`checkbox ${selectedHosts.includes(host.id) ? 'checked' : ''}`}>
+        {selectedHosts.includes(host.id) && <span style={{ color: 'white', fontSize: 10 }}>✓</span>}
+      </div>
+      <span>{host.hostname}</span>
+      <StatusBadge status={host.online ? 'online' : 'offline'}/>
+    </div>
+  );
 
   const submitJob = async (jobType) => {
     if (selectedHosts.length === 0) {
@@ -886,30 +927,50 @@ function ActionsPage({ hosts, addToast }) {
       {/* Host selector */}
       <div className="card">
         <div className="card-header">
-          <span className="card-title">Select Hosts</span>
+          <span className="card-title">Select Hosts ({selectedHosts.length}/{hosts.length})</span>
           <div className="btn-group">
             <button className="btn btn-sm" onClick={selectAll}>All</button>
             <button className="btn btn-sm" onClick={selectNone}>None</button>
           </div>
         </div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-          {hosts.map(host => (
-            <div key={host.id}
-              className="checkbox-row"
-              onClick={() => toggleHost(host.id)}
-              style={{
-                background: selectedHosts.includes(host.id) ? 'rgba(59,130,246,0.1)' : 'var(--bg-input)',
-                border: `1px solid ${selectedHosts.includes(host.id) ? 'var(--accent)' : 'var(--border)'}`,
-                borderRadius: 6, padding: '8px 12px'
-              }}>
-              <div className={`checkbox ${selectedHosts.includes(host.id) ? 'checked' : ''}`}>
-                {selectedHosts.includes(host.id) && <span style={{ color: 'white', fontSize: 10 }}>✓</span>}
+
+        {groups.map(group => {
+          const groupHosts = grouped[group.id] || [];
+          if (groupHosts.length === 0) return null;
+          const allSelected = groupHosts.every(h => selectedHosts.includes(h.id));
+          return (
+            <div key={group.id} style={{ marginBottom: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, cursor: 'pointer' }}
+                onClick={() => selectGroup(group.id)}>
+                <span style={{ width: 10, height: 10, borderRadius: 2, background: group.color, flexShrink: 0 }}/>
+                <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  {group.name}
+                </span>
+                <span style={{ fontSize: 10, color: allSelected ? 'var(--accent)' : 'var(--text-dim)' }}>
+                  {allSelected ? '(all selected)' : `(click to ${allSelected ? 'deselect' : 'select'} all)`}
+                </span>
               </div>
-              <span>{host.hostname}</span>
-              <StatusBadge status={host.online ? 'online' : 'offline'}/>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, paddingLeft: 18 }}>
+                {groupHosts.map(renderHostChip)}
+              </div>
             </div>
-          ))}
-        </div>
+          );
+        })}
+
+        {ungrouped.length > 0 && (
+          <div style={{ marginBottom: 8 }}>
+            {groups.length > 0 && (
+              <div style={{ marginBottom: 6 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  Ungrouped
+                </span>
+              </div>
+            )}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, paddingLeft: groups.length > 0 ? 18 : 0 }}>
+              {ungrouped.map(renderHostChip)}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Action tiles */}
