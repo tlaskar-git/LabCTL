@@ -1,0 +1,9 @@
+node_modules/
+server/node_modules/
+server/data/
+server/labctl-data.json
+*.db
+*.log
+__pycache__/
+*.pyc
+.env
