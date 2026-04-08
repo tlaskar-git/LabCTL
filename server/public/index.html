@@ -252,15 +252,15 @@
     /* Host cards grid */
     .hosts-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-      gap: 16px;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 12px;
       margin-bottom: 24px;
     }
     .host-card {
       background: var(--bg-card);
       border: 1px solid var(--border);
       border-radius: 8px;
-      padding: 16px;
+      padding: 12px;
       cursor: pointer;
       transition: all 0.15s;
       position: relative;
@@ -275,25 +275,25 @@
     }
     .host-name {
       font-weight: 600;
-      font-size: 15px;
-      margin-bottom: 4px;
+      font-size: 13px;
+      margin-bottom: 2px;
       display: flex;
       align-items: center;
       gap: 8px;
     }
     .host-os {
-      font-size: 12px;
+      font-size: 11px;
       color: var(--text-dim);
       font-family: 'JetBrains Mono', monospace;
     }
     .host-stats {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 8px;
-      margin-top: 12px;
+      gap: 4px;
+      margin-top: 8px;
     }
     .host-stat {
-      font-size: 11px;
+      font-size: 10px;
       color: var(--text-dim);
     }
     .host-stat strong {
@@ -553,10 +553,11 @@ const JOB_TYPES = {
   reboot: { label: 'Reboot', icon: Icons.Power, os: 'all' },
   autologin: { label: 'Set Auto-Login', icon: Icons.Key, os: 'windows' },
   disable_autologin: { label: 'Disable Auto-Login', icon: Icons.Key, os: 'windows' },
-  list_crons: { label: 'List Crons/Tasks', icon: Icons.List, os: 'all' },
+  list_crons: { label: 'List Crons/Scheduled Tasks', icon: Icons.List, os: 'all' },
   custom_command: { label: 'Custom Command', icon: Icons.Terminal, os: 'all' },
   service_control: { label: 'Service Control', icon: Icons.Settings, os: 'all' },
   disk_cleanup: { label: 'Disk Cleanup', icon: Icons.Trash, os: 'all' },
+  file_browse: { label: 'File Browser', icon: Icons.HardDrive, os: 'all' },
 };
 
 // ══════════════════════════════════════════════════════════
@@ -1023,24 +1024,41 @@ function ActionsPage({ hosts, addToast }) {
         )}
       </div>
 
-      {/* Action tiles */}
-      <div className="actions-grid">
-        {Object.entries(JOB_TYPES).map(([key, meta]) => {
-          const Icon = meta.icon;
-          return (
-            <div key={key} className="action-tile" onClick={() => setShowJobModal(key)}>
-              <Icon/>
-              <div className="action-tile-label">{meta.label}</div>
-              <div className="action-tile-desc">{meta.os === 'all' ? 'All OS' : meta.os}</div>
+      {/* Action tiles - filtered by selected host OS */}
+      {(() => {
+        const selHosts = hosts.filter(h => selectedHosts.includes(h.id));
+        const hasWindows = selHosts.some(h => (h.os || '').toLowerCase().includes('windows'));
+        const hasLinux = selHosts.some(h => !(h.os || '').toLowerCase().includes('windows'));
+        const noSelection = selHosts.length === 0;
+        return (
+          <div className="actions-grid">
+            {Object.entries(JOB_TYPES).map(([key, meta]) => {
+              const show = noSelection || meta.os === 'all' ||
+                (meta.os === 'windows' && hasWindows) ||
+                (meta.os === 'linux' && hasLinux);
+              if (!show) return null;
+              const Icon = meta.icon;
+              return (
+                <div key={key} className="action-tile" onClick={() => {
+                  if (selectedHosts.length === 0) { addToast('Select at least one host.', 'error'); return; }
+                  if (meta.os === 'windows' && !hasWindows) { addToast('No Windows hosts selected.', 'error'); return; }
+                  if (meta.os === 'linux' && !hasLinux) { addToast('No Linux hosts selected.', 'error'); return; }
+                  setShowJobModal(key);
+                }}>
+                  <Icon/>
+                  <div className="action-tile-label">{meta.label}</div>
+                  <div className="action-tile-desc">{meta.os === 'all' ? 'All OS' : meta.os}</div>
+                </div>
+              );
+            })}
+            <div className="action-tile" onClick={() => setShowJobModal('_backup_chain')}>
+              <Icons.HardDrive/>
+              <div className="action-tile-label">Backup + Reboot Chain</div>
+              <div className="action-tile-desc">Proxmox backup, reboot, autologin</div>
             </div>
-          );
-        })}
-        <div className="action-tile" onClick={() => setShowJobModal('_backup_chain')}>
-          <Icons.HardDrive/>
-          <div className="action-tile-label">Backup + Reboot Chain</div>
-          <div className="action-tile-desc">Proxmox backup, reboot, autologin</div>
-        </div>
-      </div>
+          </div>
+        );
+      })()}
 
       {/* Job parameter modals */}
       {showJobModal && showJobModal !== '_backup_chain' && (
@@ -1071,22 +1089,31 @@ function ActionsPage({ hosts, addToast }) {
             </div>
           )}
 
-          {showJobModal === 'docker_update' && (
-            <div className="form-row">
-              <div className="form-group">
-                <label className="form-label">Container (blank = all)</label>
-                <input className="input" placeholder="e.g., n8n"
-                  value={jobParams.container || ''}
-                  onChange={e => setJobParams(p => ({ ...p, container: e.target.value }))}/>
+          {showJobModal === 'docker_update' && (() => {
+            const selHosts = hosts.filter(h => selectedHosts.includes(h.id));
+            const allContainers = selHosts.flatMap(h => (h.system_info?.docker_containers || []).map(c => ({ host: h.hostname, name: c })));
+            return (
+              <div style={{ marginBottom: 16 }}>
+                <div className="form-group" style={{ marginBottom: 12 }}>
+                  <label className="form-label">Container</label>
+                  <select className="select input"
+                    value={jobParams.container || ''}
+                    onChange={e => setJobParams(p => ({ ...p, container: e.target.value }))}>
+                    <option value="">All containers</option>
+                    {allContainers.map((c, i) => (
+                      <option key={i} value={c.name}>{c.name} ({c.host})</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Compose Directory (optional)</label>
+                  <input className="input" placeholder="/root/docker-stacks/myapp"
+                    value={jobParams.compose_dir || ''}
+                    onChange={e => setJobParams(p => ({ ...p, compose_dir: e.target.value }))}/>
+                </div>
               </div>
-              <div className="form-group">
-                <label className="form-label">Compose Dir (optional)</label>
-                <input className="input" placeholder="/opt/n8n"
-                  value={jobParams.compose_dir || ''}
-                  onChange={e => setJobParams(p => ({ ...p, compose_dir: e.target.value }))}/>
-              </div>
-            </div>
-          )}
+            );
+          })()}
 
           {showJobModal === 'backup' && (
             <div className="form-group" style={{ marginBottom: 16 }}>
@@ -1097,30 +1124,37 @@ function ActionsPage({ hosts, addToast }) {
             </div>
           )}
 
-          {showJobModal === 'autologin' && (
-            <>
-              <div className="form-row">
-                <div className="form-group">
-                  <label className="form-label">Username</label>
-                  <input className="input" placeholder="Administrator"
-                    value={jobParams.username || ''}
-                    onChange={e => setJobParams(p => ({ ...p, username: e.target.value }))}/>
+          {showJobModal === 'autologin' && (() => {
+            const selHost = hosts.find(h => selectedHosts.includes(h.id));
+            const detectedDomain = selHost?.system_info?.domain || '';
+            if (!jobParams._domainInit && detectedDomain) {
+              setTimeout(() => setJobParams(p => ({ ...p, domain: detectedDomain, _domainInit: true })), 0);
+            }
+            return (
+              <>
+                <div className="form-row">
+                  <div className="form-group">
+                    <label className="form-label">Username</label>
+                    <input className="input" placeholder="Administrator"
+                      value={jobParams.username || ''}
+                      onChange={e => setJobParams(p => ({ ...p, username: e.target.value }))}/>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Password</label>
+                    <input className="input" type="password"
+                      value={jobParams.password || ''}
+                      onChange={e => setJobParams(p => ({ ...p, password: e.target.value }))}/>
+                  </div>
                 </div>
-                <div className="form-group">
-                  <label className="form-label">Password</label>
-                  <input className="input" type="password"
-                    value={jobParams.password || ''}
-                    onChange={e => setJobParams(p => ({ ...p, password: e.target.value }))}/>
+                <div className="form-group" style={{ marginBottom: 16 }}>
+                  <label className="form-label">Domain {detectedDomain && <span style={{ color: 'var(--green)', fontSize: 10 }}>(auto-detected)</span>}</label>
+                  <input className="input"
+                    value={jobParams.domain || ''}
+                    onChange={e => setJobParams(p => ({ ...p, domain: e.target.value }))}/>
                 </div>
-              </div>
-              <div className="form-group" style={{ marginBottom: 16 }}>
-                <label className="form-label">Domain (optional)</label>
-                <input className="input" placeholder="slobal.local"
-                  value={jobParams.domain || ''}
-                  onChange={e => setJobParams(p => ({ ...p, domain: e.target.value }))}/>
-              </div>
-            </>
-          )}
+              </>
+            );
+          })()}
 
           {showJobModal === 'custom_command' && (
             <div className="form-group" style={{ marginBottom: 16 }}>
@@ -1132,27 +1166,40 @@ function ActionsPage({ hosts, addToast }) {
             </div>
           )}
 
-          {showJobModal === 'service_control' && (
-            <div className="form-row">
-              <div className="form-group">
-                <label className="form-label">Service Name</label>
-                <input className="input" placeholder="nginx"
-                  value={jobParams.service || ''}
-                  onChange={e => setJobParams(p => ({ ...p, service: e.target.value }))}/>
+          {showJobModal === 'service_control' && (() => {
+            const selHosts = hosts.filter(h => selectedHosts.includes(h.id));
+            const allServices = [...new Set(selHosts.flatMap(h => h.system_info?.services || []))].sort();
+            return (
+              <div style={{ marginBottom: 16 }}>
+                <div className="form-group" style={{ marginBottom: 12 }}>
+                  <label className="form-label">Service</label>
+                  {allServices.length > 0 ? (
+                    <select className="select input"
+                      value={jobParams.service || ''}
+                      onChange={e => setJobParams(p => ({ ...p, service: e.target.value }))}>
+                      <option value="">Select service...</option>
+                      {allServices.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  ) : (
+                    <input className="input" placeholder="Service name"
+                      value={jobParams.service || ''}
+                      onChange={e => setJobParams(p => ({ ...p, service: e.target.value }))}/>
+                  )}
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Action</label>
+                  <select className="select input"
+                    value={jobParams.action || 'status'}
+                    onChange={e => setJobParams(p => ({ ...p, action: e.target.value }))}>
+                    <option value="status">Status</option>
+                    <option value="start">Start</option>
+                    <option value="stop">Stop</option>
+                    <option value="restart">Restart</option>
+                  </select>
+                </div>
               </div>
-              <div className="form-group">
-                <label className="form-label">Action</label>
-                <select className="select input"
-                  value={jobParams.action || 'status'}
-                  onChange={e => setJobParams(p => ({ ...p, action: e.target.value }))}>
-                  <option value="status">Status</option>
-                  <option value="start">Start</option>
-                  <option value="stop">Stop</option>
-                  <option value="restart">Restart</option>
-                </select>
-              </div>
-            </div>
-          )}
+            );
+          })()}
 
           {showJobModal === 'reboot' && (
             <div className="form-group" style={{ marginBottom: 16 }}>
@@ -1160,6 +1207,61 @@ function ActionsPage({ hosts, addToast }) {
               <input className="input" type="number" placeholder="30"
                 value={jobParams.delay || 30}
                 onChange={e => setJobParams(p => ({ ...p, delay: parseInt(e.target.value) || 30 }))}/>
+            </div>
+          )}
+
+          {showJobModal === 'disk_cleanup' && (() => {
+            const selHosts = hosts.filter(h => selectedHosts.includes(h.id));
+            const hasWindows = selHosts.some(h => (h.os || '').toLowerCase().includes('windows'));
+            const hasLinux = selHosts.some(h => !(h.os || '').toLowerCase().includes('windows'));
+            const opts = jobParams.options || [];
+            const toggleOpt = (opt) => {
+              const cur = jobParams.options || [];
+              setJobParams(p => ({ ...p, options: cur.includes(opt) ? cur.filter(o => o !== opt) : [...cur, opt] }));
+            };
+            return (
+              <div style={{ marginBottom: 16 }}>
+                {hasWindows && (
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6 }}>Windows Cleanup</div>
+                    {[['temp','Temp Files'], ['windows_update_cache','Windows Update Cache'], ['recycle_bin','Recycle Bin'], ['event_logs','Event Logs']].map(([k,v]) => (
+                      <div key={k} className="checkbox-row" onClick={() => toggleOpt(k)} style={{ marginBottom: 4 }}>
+                        <div className={`checkbox ${opts.includes(k) ? 'checked' : ''}`}>
+                          {opts.includes(k) && <span style={{ color: 'white', fontSize: 10 }}>✓</span>}
+                        </div>
+                        <span style={{ fontSize: 12 }}>{v}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {hasLinux && (
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6 }}>Linux Cleanup</div>
+                    {[['apt_cache','APT Cache + Autoremove'], ['journal','Journal Logs (older than 7d)'], ['docker_prune','Docker Prune'], ['tmp','Temp Files (/tmp)']].map(([k,v]) => (
+                      <div key={k} className="checkbox-row" onClick={() => toggleOpt(k)} style={{ marginBottom: 4 }}>
+                        <div className={`checkbox ${opts.includes(k) ? 'checked' : ''}`}>
+                          {opts.includes(k) && <span style={{ color: 'white', fontSize: 10 }}>✓</span>}
+                        </div>
+                        <span style={{ fontSize: 12 }}>{v}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 8 }}>Leave all unchecked to run everything.</div>
+              </div>
+            );
+          })()}
+
+          {showJobModal === 'file_browse' && (
+            <div className="form-group" style={{ marginBottom: 16 }}>
+              <label className="form-label">Path</label>
+              <input className="input mono" placeholder={(() => {
+                const h = hosts.find(h => selectedHosts.includes(h.id));
+                return (h?.os || '').toLowerCase().includes('windows') ? 'C:\\' : '/';
+              })()}
+                value={jobParams.path || ''}
+                onChange={e => setJobParams(p => ({ ...p, path: e.target.value }))}/>
+              <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 4 }}>Browse directories on the remote host.</div>
             </div>
           )}
 
@@ -1187,13 +1289,32 @@ function ActionsPage({ hosts, addToast }) {
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
                       <StatusBadge status={job.status}/>
                       <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{job.hostname}</span>
-                      {['pending','sent'].includes(job.status) && (
-                        <button className="btn btn-sm" style={{ marginLeft: 'auto', padding: '1px 6px', fontSize: 10 }}
-                          onClick={async () => {
-                            await api(`/api/jobs/${job.id}/cancel`, { method: 'POST' });
-                            setModalJobs(prev => prev.map(j => j.id === job.id ? { ...j, status: 'cancelled' } : j));
-                          }}>Cancel</button>
-                      )}
+                      <div style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
+                        {['pending','sent'].includes(job.status) && (
+                          <button className="btn btn-sm" style={{ padding: '1px 6px', fontSize: 10 }}
+                            onClick={async () => {
+                              await api(`/api/jobs/${job.id}/cancel`, { method: 'POST' });
+                              setModalJobs(prev => prev.map(j => j.id === job.id ? { ...j, status: 'cancelled' } : j));
+                            }}>Cancel</button>
+                        )}
+                        {job.status === 'running' && (
+                          <button className="btn btn-sm btn-danger" style={{ padding: '1px 6px', fontSize: 10 }}
+                            onClick={async () => {
+                              await api(`/api/jobs/${job.id}/cancel`, { method: 'POST' });
+                              setModalJobs(prev => prev.map(j => j.id === job.id ? { ...j, status: 'cancelled' } : j));
+                            }}>Stop</button>
+                        )}
+                        {(job.result || job.error) && (
+                          <button className="btn btn-sm" style={{ padding: '1px 6px', fontSize: 10 }}
+                            onClick={() => {
+                              const blob = new Blob([job.result || job.error], { type: 'text/plain' });
+                              const url = URL.createObjectURL(blob);
+                              const a = document.createElement('a');
+                              a.href = url; a.download = `${job.hostname}-${job.type}-${job.id.slice(0,8)}.log`;
+                              a.click(); URL.revokeObjectURL(url);
+                            }}>Download Log</button>
+                        )}
+                      </div>
                     </div>
                     {(job.result || job.error) && (
                       <div className="output-log" style={{ maxHeight: 150, fontSize: 10 }}>
@@ -1297,13 +1418,32 @@ function ActionsPage({ hosts, addToast }) {
                   <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>
                     {job.hostname}
                   </span>
-                  {['pending','sent'].includes(job.status) && (
-                    <button className="btn btn-sm" style={{ marginLeft: 'auto', padding: '2px 8px' }}
-                      onClick={async () => {
-                        await api(`/api/jobs/${job.id}/cancel`, { method: 'POST' });
-                        setTrackedJobs(prev => prev.map(j => j.id === job.id ? { ...j, status: 'cancelled' } : j));
-                      }}>Cancel</button>
-                  )}
+                  <div style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
+                    {['pending','sent'].includes(job.status) && (
+                      <button className="btn btn-sm" style={{ padding: '2px 8px' }}
+                        onClick={async () => {
+                          await api(`/api/jobs/${job.id}/cancel`, { method: 'POST' });
+                          setTrackedJobs(prev => prev.map(j => j.id === job.id ? { ...j, status: 'cancelled' } : j));
+                        }}>Cancel</button>
+                    )}
+                    {job.status === 'running' && (
+                      <button className="btn btn-sm btn-danger" style={{ padding: '2px 8px' }}
+                        onClick={async () => {
+                          await api(`/api/jobs/${job.id}/cancel`, { method: 'POST' });
+                          setTrackedJobs(prev => prev.map(j => j.id === job.id ? { ...j, status: 'cancelled' } : j));
+                        }}>Stop</button>
+                    )}
+                    {(job.result || job.error) && (
+                      <button className="btn btn-sm" style={{ padding: '2px 8px' }}
+                        onClick={() => {
+                          const blob = new Blob([job.result || job.error], { type: 'text/plain' });
+                          const url = URL.createObjectURL(blob);
+                          const a = document.createElement('a');
+                          a.href = url; a.download = `${job.hostname}-${job.type}-${job.id.slice(0,8)}.log`;
+                          a.click(); URL.revokeObjectURL(url);
+                        }}>Download</button>
+                    )}
+                  </div>
                 </div>
                 {(job.result || job.error) && (
                   <div className="output-log" style={{
@@ -1469,7 +1609,7 @@ function SchedulesPage({ hosts, addToast }) {
     <div>
       <div className="page-header">
         <div>
-          <div className="page-title">Schedules</div>
+          <div className="page-title">Crons / Scheduled Tasks</div>
           <div className="page-desc">Cron-based job scheduling</div>
         </div>
         <button className="btn btn-primary" onClick={() => setShowAdd(true)}>+ New Schedule</button>
@@ -1537,11 +1677,59 @@ function SchedulesPage({ hosts, addToast }) {
             </div>
           </div>
           <div className="form-group" style={{ marginBottom: 12 }}>
-            <label className="form-label">Cron Expression</label>
-            <input className="input mono" placeholder="0 1 * * 0"
-              value={form.cron} onChange={e => setForm(f => ({ ...f, cron: e.target.value }))}/>
-            <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 4 }}>
-              min hour day month weekday &middot; Examples: <code>0 1 * * 0</code> (Sun 1AM), <code>0 3 * * *</code> (daily 3AM)
+            <label className="form-label">Schedule</label>
+            <div className="form-row" style={{ marginBottom: 4 }}>
+              <div className="form-group">
+                <select className="select input" style={{ fontSize: 12 }}
+                  value={form._cronPreset || 'custom'}
+                  onChange={e => {
+                    const presets = {
+                      'daily_1am': '0 1 * * *',
+                      'daily_3am': '0 3 * * *',
+                      'daily_6am': '0 6 * * *',
+                      'daily_noon': '0 12 * * *',
+                      'weekly_sun_1am': '0 1 * * 0',
+                      'weekly_sun_3am': '0 3 * * 0',
+                      'weekly_mon_6am': '0 6 * * 1',
+                      'weekly_fri_6pm': '0 18 * * 5',
+                      'monthly_1st_1am': '0 1 1 * *',
+                      'every_6h': '0 */6 * * *',
+                      'every_12h': '0 */12 * * *',
+                      'every_30min': '*/30 * * * *',
+                      'hourly': '0 * * * *',
+                    };
+                    const val = presets[e.target.value] || form.cron;
+                    setForm(f => ({ ...f, cron: val, _cronPreset: e.target.value }));
+                  }}>
+                  <option value="custom">Custom cron expression</option>
+                  <optgroup label="Daily">
+                    <option value="daily_1am">Daily at 1:00 AM</option>
+                    <option value="daily_3am">Daily at 3:00 AM</option>
+                    <option value="daily_6am">Daily at 6:00 AM</option>
+                    <option value="daily_noon">Daily at 12:00 PM</option>
+                  </optgroup>
+                  <optgroup label="Weekly">
+                    <option value="weekly_sun_1am">Every Sunday at 1:00 AM</option>
+                    <option value="weekly_sun_3am">Every Sunday at 3:00 AM</option>
+                    <option value="weekly_mon_6am">Every Monday at 6:00 AM</option>
+                    <option value="weekly_fri_6pm">Every Friday at 6:00 PM</option>
+                  </optgroup>
+                  <optgroup label="Monthly">
+                    <option value="monthly_1st_1am">1st of every month at 1:00 AM</option>
+                  </optgroup>
+                  <optgroup label="Frequent">
+                    <option value="hourly">Every hour</option>
+                    <option value="every_30min">Every 30 minutes</option>
+                    <option value="every_6h">Every 6 hours</option>
+                    <option value="every_12h">Every 12 hours</option>
+                  </optgroup>
+                </select>
+              </div>
+            </div>
+            <input className="input mono" placeholder="0 1 * * 0" style={{ fontSize: 12 }}
+              value={form.cron} onChange={e => setForm(f => ({ ...f, cron: e.target.value, _cronPreset: 'custom' }))}/>
+            <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 4 }}>
+              Format: min hour day month weekday
             </div>
           </div>
 
@@ -1725,7 +1913,7 @@ function HostDetailModal({ host, onClose, addToast }) {
 
         {/* Tabs */}
         <div className="tabs">
-          {['overview','jobs','quick actions'].map(t => (
+          {['overview','jobs','crons/tasks','quick actions'].map(t => (
             <div key={t} className={`tab ${activeTab === t ? 'active' : ''}`} onClick={() => setActiveTab(t)}>
               {t.charAt(0).toUpperCase() + t.slice(1)}
             </div>
@@ -1735,30 +1923,44 @@ function HostDetailModal({ host, onClose, addToast }) {
         {/* Overview Tab */}
         {activeTab === 'overview' && (
           <div>
-            {/* Resource bars */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
-              <div className="card" style={{ padding: 12, marginBottom: 0 }}>
-                <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 6 }}>RAM Usage</div>
-                {ramPercent !== null ? (
-                  <>
-                    <ProgressBar percent={ramPercent}/>
-                    <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4 }}>
-                      {Math.round((info.ram_mb - info.ram_available_mb) / 1024 * 10) / 10}GB / {Math.round(info.ram_mb / 1024 * 10) / 10}GB ({ramPercent}%)
-                    </div>
-                  </>
-                ) : <span style={{ fontSize: 12, color: 'var(--text-dim)' }}>N/A</span>}
-              </div>
-              <div className="card" style={{ padding: 12, marginBottom: 0 }}>
-                <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 6 }}>Disk Usage</div>
-                {diskPercent !== null ? (
-                  <>
+            {/* RAM */}
+            <div className="card" style={{ padding: 12, marginBottom: 12 }}>
+              <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 6 }}>RAM Usage</div>
+              {ramPercent !== null ? (
+                <>
+                  <ProgressBar percent={ramPercent}/>
+                  <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4 }}>
+                    {Math.round((info.ram_mb - info.ram_available_mb) / 1024 * 10) / 10}GB / {Math.round(info.ram_mb / 1024 * 10) / 10}GB ({ramPercent}%)
+                  </div>
+                </>
+              ) : <span style={{ fontSize: 12, color: 'var(--text-dim)' }}>N/A</span>}
+            </div>
+
+            {/* All Drives */}
+            <div className="card" style={{ padding: 12, marginBottom: 12 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, color: 'var(--text-secondary)' }}>Drives</div>
+              {(info.drives && info.drives.length > 0) ? info.drives.map((drv, i) => (
+                <div key={i} style={{ marginBottom: i < info.drives.length - 1 ? 10 : 0 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                    <span style={{ fontSize: 11, fontFamily: 'JetBrains Mono, monospace', color: 'var(--text-primary)' }}>
+                      {drv.device} ({drv.mount})
+                    </span>
+                    <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>
+                      {drv.free_gb}GB free / {drv.total_gb}GB
+                    </span>
+                  </div>
+                  <ProgressBar percent={drv.percent || 0}/>
+                </div>
+              )) : (
+                diskPercent !== null ? (
+                  <div>
                     <ProgressBar percent={diskPercent}/>
                     <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4 }}>
                       {Math.round((info.disk_total_gb - info.disk_free_gb) * 10) / 10}GB / {info.disk_total_gb}GB ({diskPercent}%)
                     </div>
-                  </>
-                ) : <span style={{ fontSize: 12, color: 'var(--text-dim)' }}>N/A</span>}
-              </div>
+                  </div>
+                ) : <span style={{ fontSize: 12, color: 'var(--text-dim)' }}>N/A</span>
+              )}
             </div>
 
             {/* System Info */}
@@ -1770,13 +1972,36 @@ function HostDetailModal({ host, onClose, addToast }) {
               <InfoRow label="Architecture" value={info.arch}/>
               <InfoRow label="CPU Cores" value={info.cpus} mono/>
               <InfoRow label="IP Address" value={host.ip || info.ip} mono/>
+              {info.domain && <InfoRow label="Domain" value={info.domain} mono/>}
               <InfoRow label="Uptime" value={info.uptime_hours ? `${info.uptime_hours} hours (${Math.round(info.uptime_hours / 24)} days)` : null}/>
               <InfoRow label="Last Seen" value={host.last_seen ? new Date(host.last_seen).toLocaleString() : null}/>
               <InfoRow label="Agent ID" value={host.id} mono/>
             </div>
 
-            {/* Docker containers */}
-            {info.docker_containers && info.docker_containers.length > 0 && (
+            {/* Docker containers with details */}
+            {info.docker_details && info.docker_details.length > 0 && (
+              <div className="card" style={{ padding: 12 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, color: 'var(--text-secondary)' }}>
+                  Docker Containers ({info.docker_running} running)
+                </div>
+                <div className="table-wrap">
+                  <table style={{ fontSize: 11 }}>
+                    <thead><tr><th>Name</th><th>Image</th><th>Status</th><th>Ports</th></tr></thead>
+                    <tbody>
+                      {info.docker_details.map((c, i) => (
+                        <tr key={i}>
+                          <td style={{ fontFamily: 'JetBrains Mono, monospace', color: 'var(--green)' }}>{c.name}</td>
+                          <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 10 }}>{c.image}</td>
+                          <td>{c.status}</td>
+                          <td style={{ fontSize: 10 }}>{c.ports || '\u2014'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+            {info.docker_containers && info.docker_containers.length > 0 && !info.docker_details && (
               <div className="card" style={{ padding: 12 }}>
                 <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, color: 'var(--text-secondary)' }}>
                   Docker Containers ({info.docker_running} running)
@@ -1845,6 +2070,77 @@ function HostDetailModal({ host, onClose, addToast }) {
                 {viewJob.error && <div className="output-log" style={{ borderColor: 'var(--red)' }}>{viewJob.error}</div>}
               </div>
             )}
+          </div>
+        )}
+
+        {/* Crons/Tasks Tab */}
+        {activeTab === 'crons/tasks' && (
+          <div>
+            {(() => {
+              const cronJob = lastJobOfType('list_crons');
+              if (!cronJob) {
+                return (
+                  <div style={{ textAlign: 'center', padding: 30 }}>
+                    <div style={{ color: 'var(--text-dim)', marginBottom: 12 }}>No cron/task data yet.</div>
+                    <button className="btn btn-primary" onClick={() => runJob('list_crons')}>
+                      <Icons.List/> Fetch {isWindows ? 'Scheduled Tasks' : 'Crons/Timers'}
+                    </button>
+                  </div>
+                );
+              }
+
+              // Try to parse Windows JSON output
+              if (isWindows) {
+                try {
+                  const tasks = JSON.parse(cronJob.result);
+                  const taskList = Array.isArray(tasks) ? tasks : [tasks];
+                  return (
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+                        <span style={{ fontSize: 13, fontWeight: 600 }}>{taskList.length} Scheduled Tasks</span>
+                        <button className="btn btn-sm" onClick={() => runJob('list_crons')}><Icons.RefreshCw/> Refresh</button>
+                      </div>
+                      <div className="table-wrap">
+                        <table style={{ fontSize: 11 }}>
+                          <thead><tr><th>Task Name</th><th>Path</th><th>State</th><th>Next Run</th></tr></thead>
+                          <tbody>
+                            {taskList.map((t, i) => (
+                              <tr key={i}>
+                                <td style={{ fontWeight: 600 }}>{t.TaskName}</td>
+                                <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 10, color: 'var(--text-dim)' }}>{t.TaskPath}</td>
+                                <td><StatusBadge status={t.State === 'Ready' || t.State === 3 ? 'online' : 'offline'}/></td>
+                                <td style={{ fontSize: 10 }}>{t.NextRun ? new Date(t.NextRun).toLocaleString() : '\u2014'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  );
+                } catch(e) {
+                  // Fall through to raw display
+                }
+              }
+
+              // Raw output for Linux or unparseable Windows
+              return (
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+                    <span style={{ fontSize: 13, fontWeight: 600 }}>{isWindows ? 'Scheduled Tasks' : 'Crons / Timers'}</span>
+                    <div className="btn-group">
+                      <button className="btn btn-sm" onClick={() => runJob('list_crons')}><Icons.RefreshCw/> Refresh</button>
+                      <button className="btn btn-sm" onClick={() => {
+                        const blob = new Blob([cronJob.result], { type: 'text/plain' });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a'); a.href = url;
+                        a.download = `${host.hostname}-crons.txt`; a.click(); URL.revokeObjectURL(url);
+                      }}>Download</button>
+                    </div>
+                  </div>
+                  <div className="output-log" style={{ maxHeight: 500 }}>{cronJob.result}</div>
+                </div>
+              );
+            })()}
           </div>
         )}
 
