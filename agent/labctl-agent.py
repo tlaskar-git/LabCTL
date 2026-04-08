@@ -108,16 +108,24 @@ def get_system_info():
                                   capture_output=True, text=True, timeout=10)
             if result.returncode == 0:
                 drives = []
+                skip_mounts = ('/snap', '/boot/efi', '/run', '/sys', '/proc', '/dev/shm')
+                skip_sources = ('tmpfs', 'devtmpfs', 'overlay', 'shm', 'udev', 'none')
                 for line in result.stdout.strip().split('\n')[1:]:
                     parts = line.split()
-                    if len(parts) >= 6 and parts[0].startswith('/dev/'):
+                    if len(parts) >= 6:
+                        source = parts[0]
                         mount = parts[5]
-                        if mount.startswith('/snap') or mount.startswith('/boot/efi'):
+                        if mount.startswith(skip_mounts):
+                            continue
+                        if source in skip_sources:
+                            continue
+                        total = float(parts[1].rstrip('G'))
+                        if total < 1:
                             continue
                         drives.append({
-                            'device': parts[0],
+                            'device': source,
                             'mount': mount,
-                            'total_gb': float(parts[1].rstrip('G')),
+                            'total_gb': total,
                             'used_gb': float(parts[2].rstrip('G')),
                             'free_gb': float(parts[3].rstrip('G')),
                             'percent': int(parts[4].rstrip('%'))
