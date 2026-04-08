@@ -84,11 +84,14 @@ def get_system_info():
         "platform": platform.platform(),
         "arch": platform.machine(),
         "cpus": os.cpu_count(),
-        "ip": get_local_ip()
+        "ip": get_local_ip(),
+        "drives": [],
+        "services": [],
+        "domain": ""
     }
 
-    # Memory
     if IS_LINUX:
+        # Memory
         try:
             with open('/proc/meminfo') as f:
                 for line in f:
@@ -99,11 +102,32 @@ def get_system_info():
         except:
             pass
 
-        # Disk
+        # All drives/partitions
         try:
-            st = os.statvfs('/')
-            info['disk_total_gb'] = round((st.f_blocks * st.f_frsize) / (1024**3), 1)
-            info['disk_free_gb'] = round((st.f_bavail * st.f_frsize) / (1024**3), 1)
+            result = subprocess.run(['df', '-BG', '--output=source,size,used,avail,pcent,target'],
+                                  capture_output=True, text=True, timeout=10)
+            if result.returncode == 0:
+                drives = []
+                for line in result.stdout.strip().split('\n')[1:]:
+                    parts = line.split()
+                    if len(parts) >= 6 and parts[0].startswith('/dev/'):
+                        mount = parts[5]
+                        if mount.startswith('/snap') or mount.startswith('/boot/efi'):
+                            continue
+                        drives.append({
+                            'device': parts[0],
+                            'mount': mount,
+                            'total_gb': float(parts[1].rstrip('G')),
+                            'used_gb': float(parts[2].rstrip('G')),
+                            'free_gb': float(parts[3].rstrip('G')),
+                            'percent': int(parts[4].rstrip('%'))
+                        })
+                info['drives'] = drives
+                # Keep legacy fields from first drive
+                if drives:
+                    root = next((d for d in drives if d['mount'] == '/'), drives[0])
+                    info['disk_total_gb'] = root['total_gb']
+                    info['disk_free_gb'] = root['free_gb']
         except:
             pass
 
@@ -114,51 +138,145 @@ def get_system_info():
         except:
             pass
 
-        # Docker
+        # Docker containers with details
         try:
-            result = subprocess.run(['docker', 'ps', '--format', '{{.Names}}'],
-                                  capture_output=True, text=True, timeout=10)
+            result = subprocess.run(
+                ['docker', 'ps', '--format', '{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}'],
+                capture_output=True, text=True, timeout=10
+            )
             if result.returncode == 0:
-                containers = [c for c in result.stdout.strip().split('\n') if c]
-                info['docker_containers'] = containers
+                containers = []
+                names = []
+                for line in result.stdout.strip().split('\n'):
+                    if not line:
+                        continue
+                    parts = line.split('\t')
+                    name = parts[0] if len(parts) > 0 else ''
+                    names.append(name)
+                    containers.append({
+                        'name': name,
+                        'image': parts[1] if len(parts) > 1 else '',
+                        'status': parts[2] if len(parts) > 2 else '',
+                        'ports': parts[3] if len(parts) > 3 else ''
+                    })
+                info['docker_containers'] = names
+                info['docker_details'] = containers
                 info['docker_running'] = len(containers)
         except:
             pass
 
-    elif IS_WINDOWS:
+        # Domain
         try:
-            import ctypes
-            kernel32 = ctypes.windll.kernel32
-            mem = ctypes.c_ulonglong()
-            kernel32.GetPhysicallyInstalledSystemMemory(ctypes.byref(mem))
-            info['ram_mb'] = mem.value // 1024
+            result = subprocess.run(['hostname', '-d'], capture_output=True, text=True, timeout=5)
+            if result.returncode == 0 and result.stdout.strip():
+                info['domain'] = result.stdout.strip()
         except:
             pass
 
-        try:
-            result = subprocess.run(['wmic', 'os', 'get', 'LastBootUpTime', '/value'],
-                                  capture_output=True, text=True, timeout=10)
-            if 'LastBootUpTime' in result.stdout:
-                boot = result.stdout.split('=')[1].strip()[:14]
-                # Parse YYYYMMDDHHMMSS
-                from datetime import datetime
-                boot_time = datetime.strptime(boot, '%Y%m%d%H%M%S')
-                uptime = (datetime.now() - boot_time).total_seconds() / 3600
-                info['uptime_hours'] = round(uptime, 1)
-        except:
-            pass
-
-        # Disk
+        # Services (top running services)
         try:
             result = subprocess.run(
-                ['powershell', '-Command',
-                 "Get-PSDrive C | Select-Object @{N='Free';E={[math]::Round($_.Free/1GB,1)}},@{N='Used';E={[math]::Round($_.Used/1GB,1)}} | ConvertTo-Json"],
+                ['systemctl', 'list-units', '--type=service', '--state=running', '--no-pager', '--no-legend'],
                 capture_output=True, text=True, timeout=10
             )
             if result.returncode == 0:
-                d = json.loads(result.stdout)
-                info['disk_free_gb'] = d.get('Free', 0)
-                info['disk_total_gb'] = d.get('Free', 0) + d.get('Used', 0)
+                svcs = []
+                for line in result.stdout.strip().split('\n'):
+                    parts = line.split()
+                    if parts:
+                        svc_name = parts[0].replace('.service', '')
+                        svcs.append(svc_name)
+                info['services'] = svcs
+        except:
+            pass
+
+    elif IS_WINDOWS:
+        # Memory - use PowerShell for both total and available
+        try:
+            result = subprocess.run(
+                ['powershell', '-Command',
+                 "$os = Get-CimInstance Win32_OperatingSystem; "
+                 "@{Total=[math]::Round($os.TotalVisibleMemorySize/1024); "
+                 "Available=[math]::Round($os.FreePhysicalMemory/1024)} | ConvertTo-Json"],
+                capture_output=True, text=True, timeout=10, shell=False
+            )
+            if result.returncode == 0:
+                mem = json.loads(result.stdout)
+                info['ram_mb'] = mem.get('Total', 0)
+                info['ram_available_mb'] = mem.get('Available', 0)
+        except:
+            pass
+
+        # Uptime
+        try:
+            result = subprocess.run(
+                ['powershell', '-Command',
+                 "((Get-Date) - (Get-CimInstance Win32_OperatingSystem).LastBootUpTime).TotalHours"],
+                capture_output=True, text=True, timeout=10, shell=False
+            )
+            if result.returncode == 0:
+                info['uptime_hours'] = round(float(result.stdout.strip()), 1)
+        except:
+            pass
+
+        # All drives
+        try:
+            result = subprocess.run(
+                ['powershell', '-Command',
+                 "Get-PSDrive -PSProvider FileSystem | Where-Object {$_.Used -ne $null} | "
+                 "Select-Object Name, @{N='Total';E={[math]::Round(($_.Used+$_.Free)/1GB,1)}}, "
+                 "@{N='Used';E={[math]::Round($_.Used/1GB,1)}}, "
+                 "@{N='Free';E={[math]::Round($_.Free/1GB,1)}}, "
+                 "@{N='Percent';E={[math]::Round($_.Used/($_.Used+$_.Free)*100)}} | ConvertTo-Json"],
+                capture_output=True, text=True, timeout=10, shell=False
+            )
+            if result.returncode == 0:
+                raw = result.stdout.strip()
+                if raw:
+                    data = json.loads(raw)
+                    if isinstance(data, dict):
+                        data = [data]
+                    drives = []
+                    for d in data:
+                        drives.append({
+                            'device': d.get('Name', '?') + ':',
+                            'mount': d.get('Name', '?') + ':\\',
+                            'total_gb': d.get('Total', 0),
+                            'used_gb': d.get('Used', 0),
+                            'free_gb': d.get('Free', 0),
+                            'percent': d.get('Percent', 0)
+                        })
+                    info['drives'] = drives
+                    if drives:
+                        info['disk_total_gb'] = drives[0]['total_gb']
+                        info['disk_free_gb'] = drives[0]['free_gb']
+        except:
+            pass
+
+        # Domain
+        try:
+            result = subprocess.run(
+                ['powershell', '-Command',
+                 "(Get-CimInstance Win32_ComputerSystem).Domain"],
+                capture_output=True, text=True, timeout=10, shell=False
+            )
+            if result.returncode == 0:
+                domain = result.stdout.strip()
+                if domain and domain != 'WORKGROUP':
+                    info['domain'] = domain
+        except:
+            pass
+
+        # Services (running)
+        try:
+            result = subprocess.run(
+                ['powershell', '-Command',
+                 "Get-Service | Where-Object {$_.Status -eq 'Running'} | "
+                 "Select-Object -ExpandProperty Name | Sort-Object"],
+                capture_output=True, text=True, timeout=15, shell=False
+            )
+            if result.returncode == 0:
+                info['services'] = [s.strip() for s in result.stdout.strip().split('\n') if s.strip()]
         except:
             pass
 
@@ -445,38 +563,98 @@ def job_service_control(params):
 
 
 def job_disk_cleanup(params):
-    """Run disk cleanup."""
+    """Run disk cleanup with selectable options."""
+    options = params.get('options', [])
+    output_parts = []
+
     if IS_WINDOWS:
-        script = '''
-        # Windows Disk Cleanup
-        cleanmgr /sagerun:1
-        
-        # Clear temp files
-        Remove-Item -Path "$env:TEMP\\*" -Recurse -Force -ErrorAction SilentlyContinue
-        Remove-Item -Path "C:\\Windows\\Temp\\*" -Recurse -Force -ErrorAction SilentlyContinue
-        
-        # Clear Windows Update cache
-        Stop-Service -Name wuauserv -Force -ErrorAction SilentlyContinue
-        Remove-Item -Path "C:\\Windows\\SoftwareDistribution\\Download\\*" -Recurse -Force -ErrorAction SilentlyContinue
-        Start-Service -Name wuauserv
-        
-        Write-Output "Disk cleanup completed"
-        '''
-        rc, stdout, stderr = run_command(
-            ['powershell', '-ExecutionPolicy', 'Bypass', '-Command', script],
-            shell=False, timeout=600
-        )
-        return stdout + stderr
+        if not options or 'temp' in options:
+            rc, s, e = run_command(['powershell', '-Command',
+                'Remove-Item -Path "$env:TEMP\\*" -Recurse -Force -ErrorAction SilentlyContinue; '
+                'Remove-Item -Path "C:\\Windows\\Temp\\*" -Recurse -Force -ErrorAction SilentlyContinue; '
+                'Write-Output "Temp files cleared"'], shell=False, timeout=120)
+            output_parts.append(s.strip())
+        if not options or 'windows_update_cache' in options:
+            rc, s, e = run_command(['powershell', '-Command',
+                'Stop-Service -Name wuauserv -Force -ErrorAction SilentlyContinue; '
+                'Remove-Item -Path "C:\\Windows\\SoftwareDistribution\\Download\\*" -Recurse -Force -ErrorAction SilentlyContinue; '
+                'Start-Service -Name wuauserv; Write-Output "Windows Update cache cleared"'], shell=False, timeout=120)
+            output_parts.append(s.strip())
+        if not options or 'recycle_bin' in options:
+            rc, s, e = run_command(['powershell', '-Command',
+                'Clear-RecycleBin -Force -ErrorAction SilentlyContinue; Write-Output "Recycle bin emptied"'],
+                shell=False, timeout=60)
+            output_parts.append(s.strip())
+        if not options or 'event_logs' in options:
+            rc, s, e = run_command(['powershell', '-Command',
+                'Get-EventLog -LogName * | ForEach-Object { Clear-EventLog $_.Log -ErrorAction SilentlyContinue }; '
+                'Write-Output "Event logs cleared"'], shell=False, timeout=60)
+            output_parts.append(s.strip())
+        # Show disk space after
+        rc, s, e = run_command(['powershell', '-Command',
+            "Get-PSDrive -PSProvider FileSystem | Where-Object {$_.Used -ne $null} | "
+            "Format-Table Name, @{N='Free(GB)';E={[math]::Round($_.Free/1GB,1)}}, "
+            "@{N='Used(GB)';E={[math]::Round($_.Used/1GB,1)}} -AutoSize | Out-String"],
+            shell=False, timeout=30)
+        output_parts.append(f"\nDisk space:\n{s}")
     else:
-        commands = [
-            "apt-get autoremove -y 2>&1",
-            "apt-get autoclean -y 2>&1",
-            "journalctl --vacuum-time=7d 2>&1",
-            "docker system prune -f 2>&1 || true",
-            "df -h 2>&1"
-        ]
-        rc, stdout, stderr = run_command(" && ".join(commands), timeout=300)
+        if not options or 'apt_cache' in options:
+            rc, s, e = run_command("apt-get autoremove -y 2>&1 && apt-get autoclean -y 2>&1", timeout=120)
+            output_parts.append(f"APT cleanup:\n{s}")
+        if not options or 'journal' in options:
+            rc, s, e = run_command("journalctl --vacuum-time=7d 2>&1", timeout=60)
+            output_parts.append(f"Journal vacuum:\n{s}")
+        if not options or 'docker_prune' in options:
+            rc, s, e = run_command("docker system prune -f 2>&1 || echo 'Docker not available'", timeout=120)
+            output_parts.append(f"Docker prune:\n{s}")
+        if not options or 'tmp' in options:
+            rc, s, e = run_command("rm -rf /tmp/* 2>&1 || true", timeout=30)
+            output_parts.append("Temp files cleared")
+        rc, s, e = run_command("df -h 2>&1", timeout=10)
+        output_parts.append(f"\nDisk space:\n{s}")
+
+    return "\n".join(output_parts)
+
+
+def job_file_browse(params):
+    """Browse files and directories."""
+    path = params.get('path', '/' if IS_LINUX else 'C:\\')
+    action = params.get('action', 'list')  # list, read
+
+    if action == 'list':
+        if IS_LINUX:
+            rc, stdout, stderr = run_command(f"ls -lah '{path}' 2>&1", timeout=10)
+        else:
+            rc, stdout, stderr = run_command(
+                ['powershell', '-Command', f"Get-ChildItem -Path '{path}' | Format-Table Mode, Length, LastWriteTime, Name -AutoSize | Out-String"],
+                shell=False, timeout=10
+            )
         return stdout + stderr
+    elif action == 'read':
+        max_size = params.get('max_size', 50000)
+        try:
+            with open(path, 'r', errors='replace') as f:
+                content = f.read(max_size)
+            return content
+        except Exception as e:
+            return f"ERROR: {e}"
+    return "Unknown action"
+
+
+def job_list_task_folders(params):
+    """List Windows Task Scheduler folders."""
+    if not IS_WINDOWS:
+        return "Only available on Windows"
+    rc, stdout, stderr = run_command(
+        ['powershell', '-Command',
+         "function Get-TaskFolders($path='\\') { "
+         "$folder = (New-Object -ComObject Schedule.Service); $folder.Connect(); "
+         "$root = $folder.GetFolder($path); "
+         "foreach($f in $root.GetFolders(0)) { $f.Path; Get-TaskFolders $f.Path } }; "
+         "Get-TaskFolders"],
+        shell=False, timeout=15
+    )
+    return stdout + stderr
 
 
 # ── Job dispatcher ─────────────────────────────────────────
@@ -492,6 +670,8 @@ JOB_HANDLERS = {
     'custom_command': job_custom_command,
     'service_control': job_service_control,
     'disk_cleanup': job_disk_cleanup,
+    'file_browse': job_file_browse,
+    'list_task_folders': job_list_task_folders,
 }
 
 
