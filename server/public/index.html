@@ -1164,6 +1164,13 @@ function ActionsPage({ hosts, addToast }) {
                     value={jobParams.compose_dir || ''}
                     onChange={e => setJobParams(p => ({ ...p, compose_dir: e.target.value }))}/>
                 </div>
+                <div className="checkbox-row" onClick={() => setJobParams(p => ({ ...p, restart: p.restart === false ? true : (p.restart === true ? false : false) }))}
+                  style={{ marginTop: 10 }}>
+                  <div className={`checkbox ${jobParams.restart !== false ? 'checked' : ''}`}>
+                    {jobParams.restart !== false && <span style={{ color: 'white', fontSize: 10 }}>✓</span>}
+                  </div>
+                  <span style={{ fontSize: 12 }}>Restart containers after pull (auto-detects compose project)</span>
+                </div>
               </div>
             );
           })()}

@@ -383,7 +383,8 @@ def job_docker_update(params):
         )
         output_parts.append(f"Compose update in {compose_dir}:\n{stdout}\n{stderr}")
     elif containers and len(containers) > 0:
-        # Multiple selected containers
+        # Multiple selected containers - pull then restart
+        restart = params.get('restart', True)
         for c in containers:
             rc, stdout, stderr = run_command(
                 f"docker inspect --format='{{{{.Config.Image}}}}' {c}", timeout=30
@@ -392,10 +393,34 @@ def job_docker_update(params):
             if image:
                 rc2, stdout2, stderr2 = run_command(f"docker pull {image}", timeout=300)
                 output_parts.append(f"[{c}] Pulled {image}:\n{stdout2.strip()}")
+
+                if restart:
+                    # Try compose restart first (finds compose project from labels)
+                    rc3, proj, _ = run_command(
+                        f"docker inspect --format='{{{{index .Config.Labels \"com.docker.compose.project.working_dir\"}}}}' {c}",
+                        timeout=10
+                    )
+                    compose_path = proj.strip()
+                    if compose_path and rc3 == 0:
+                        svc_rc, svc_name, _ = run_command(
+                            f"docker inspect --format='{{{{index .Config.Labels \"com.docker.compose.service\"}}}}' {c}",
+                            timeout=10
+                        )
+                        svc = svc_name.strip()
+                        if svc:
+                            rc4, out4, err4 = run_command(
+                                f"cd {compose_path} && docker compose up -d {svc} 2>&1",
+                                timeout=120
+                            )
+                            output_parts.append(f"[{c}] Restarted via compose:\n{out4.strip()}")
+                        else:
+                            rc4, out4, err4 = run_command(f"docker restart {c}", timeout=60)
+                            output_parts.append(f"[{c}] Restarted: {out4.strip()}")
+                    else:
+                        rc4, out4, err4 = run_command(f"docker restart {c}", timeout=60)
+                        output_parts.append(f"[{c}] Restarted: {out4.strip()}")
             else:
                 output_parts.append(f"[{c}] Could not find image")
-        # Recreate via compose if possible
-        output_parts.append("\nImages pulled. Restart containers via compose or manually.")
     elif container:
         # Single container (legacy)
         rc, stdout, stderr = run_command(
