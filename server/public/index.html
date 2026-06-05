@@ -89,6 +89,7 @@
       margin-left: 220px;
       padding: 24px 32px;
       min-width: 0;
+      position: relative;
     }
 
     /* Sidebar */
@@ -413,6 +414,7 @@
       align-items: center;
       justify-content: space-between;
       margin-bottom: 24px;
+      padding-right: 52px;
     }
     .page-title {
       font-size: 20px;
@@ -534,7 +536,26 @@
     .metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; margin-bottom: 16px; }
     .metric-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 14px; box-shadow: var(--card-shadow); }
     .metric-value { font-family: 'Geist Mono', monospace; font-size: 22px; font-weight: 700; color: var(--text-primary); }
-    .theme-toggle { display: flex; align-items: center; gap: 8px; padding: 0 20px; margin-top: 12px; }
+    .theme-button {
+      position: fixed;
+      top: 24px;
+      right: 32px;
+      width: 36px;
+      height: 36px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--bg-card);
+      color: var(--text-secondary);
+      box-shadow: var(--card-shadow);
+      cursor: pointer;
+      z-index: 250;
+      transition: all 0.15s;
+    }
+    .theme-button:hover { color: var(--accent); border-color: var(--accent); background: var(--bg-card-hover); }
+    .theme-button svg { width: 16px; height: 16px; }
     .script-editor { min-height: 180px; font-family: 'Geist Mono', monospace; }
     .copy-block { display: flex; gap: 8px; align-items: center; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; padding: 10px; }
     .copy-block code { flex: 1; word-break: break-all; color: var(--text-secondary); }
@@ -542,6 +563,8 @@
     @media (max-width: 768px) {
       .sidebar { display: none; }
       .main { margin-left: 0; padding: 16px; }
+      .page-header { padding-right: 48px; }
+      .theme-button { top: 16px; right: 16px; }
       .hosts-grid { grid-template-columns: 1fr; }
       .actions-grid { grid-template-columns: 1fr 1fr; }
     }
@@ -3117,12 +3140,6 @@ function App() {
             </div>
           );
         })}
-        <div className="nav-section">Theme</div>
-        <div className="theme-toggle">
-          {theme === 'dark' ? <Icons.Moon/> : <Icons.Sun/>}
-          <div className={`toggle ${theme === 'light' ? 'active' : ''}`} onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}/>
-          <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{theme}</span>
-        </div>
         <div style={{ padding: '12px 20px' }}>
           <button className="btn btn-sm" style={{ width: '100%', justifyContent: 'center' }} onClick={logout}><Icons.Power/> Logout</button>
         </div>
@@ -3138,6 +3155,14 @@ function App() {
       </div>
 
       <div className="main">
+        <button
+          className="theme-button"
+          title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+          aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+          onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+        >
+          {theme === 'dark' ? <Icons.Moon/> : <Icons.Sun/>}
+        </button>
         {page === 'hosts' && <HostsPage hosts={hosts} addToast={addToast}/>}
         {page === 'monitoring' && <MonitoringPage hosts={hosts} addToast={addToast} currentUser={currentUser}/>}
         {page === 'actions' && <ActionsPage hosts={hosts} addToast={addToast}/>}
