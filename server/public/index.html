@@ -572,6 +572,38 @@
     .script-editor { min-height: 180px; font-family: 'Geist Mono', monospace; }
     .copy-block { display: flex; gap: 8px; align-items: center; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; padding: 10px; }
     .copy-block code { flex: 1; word-break: break-all; color: var(--text-secondary); }
+    .tooltip-wrap {
+      position: relative;
+      display: flex;
+      min-width: 0;
+    }
+    .tooltip-wrap > .btn { width: 100%; }
+    .tooltip-text {
+      position: absolute;
+      left: 50%;
+      bottom: calc(100% + 8px);
+      transform: translateX(-50%) translateY(4px);
+      width: max-content;
+      max-width: 300px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 1px solid var(--border-focus);
+      background: var(--bg-secondary);
+      color: var(--text-primary);
+      box-shadow: 0 10px 28px rgba(0,0,0,0.35), 0 0 0 1px var(--border);
+      font-size: 11px;
+      line-height: 1.45;
+      text-align: left;
+      opacity: 0;
+      pointer-events: none;
+      z-index: 3000;
+      transition: opacity 0.12s, transform 0.12s;
+    }
+    .tooltip-wrap:hover .tooltip-text,
+    .tooltip-wrap:focus-within .tooltip-text {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
 
     @media (max-width: 768px) {
       .sidebar { display: none; }
@@ -2461,6 +2493,16 @@ function HostDetailModal({ host, onClose, addToast }) {
     </div>
   );
 
+  const quickActionStyle = { justifyContent: 'center', padding: '8px 6px', fontSize: 11 };
+  const QuickActionButton = ({ tooltip, onClick, children }) => (
+    <div className="tooltip-wrap">
+      <button className="btn" onClick={onClick} title={tooltip} aria-label={tooltip} style={quickActionStyle}>
+        {children}
+      </button>
+      <div className="tooltip-text">{tooltip}</div>
+    </div>
+  );
+
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 700, maxHeight: '90vh' }}>
@@ -2755,47 +2797,47 @@ function HostDetailModal({ host, onClose, addToast }) {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6 }}>
               {isWindows && (
                 <>
-                  <button className="btn" onClick={() => runJob('windows_update', { reboot: false })} style={{ justifyContent: 'center', padding: '8px 6px', fontSize: 11 }}>
+                  <QuickActionButton tooltip="Runs Windows Update through PSWindowsUpdate. Installs available updates and does not reboot automatically." onClick={() => runJob('windows_update', { reboot: false })}>
                     <Icons.Shield/> WinUpdate
-                  </button>
-                  <button className="btn" onClick={() => runJob('windows_update', { reboot: true })} style={{ justifyContent: 'center', padding: '8px 6px', fontSize: 11 }}>
+                  </QuickActionButton>
+                  <QuickActionButton tooltip="Runs Windows Update through PSWindowsUpdate, then reboots this host if Windows reports a reboot is required." onClick={() => runJob('windows_update', { reboot: true })}>
                     <Icons.Shield/> WinUpdate+Reboot
-                  </button>
+                  </QuickActionButton>
                 </>
               )}
               {isLinux && (
                 <>
-                  <button className="btn" onClick={() => runJob('linux_update', { reboot: false })} style={{ justifyContent: 'center', padding: '8px 6px', fontSize: 11 }}>
+                  <QuickActionButton tooltip="Runs apt-get update, apt-get upgrade -y, then apt-get autoremove -y on this Linux host. No reboot is requested." onClick={() => runJob('linux_update', { reboot: false })}>
                     <Icons.Download/> Linux Update
-                  </button>
-                  <button className="btn" onClick={() => runJob('linux_update', { reboot: true })} style={{ justifyContent: 'center', padding: '8px 6px', fontSize: 11 }}>
+                  </QuickActionButton>
+                  <QuickActionButton tooltip="Runs apt-get update, apt-get upgrade -y, apt-get autoremove -y, then schedules a reboot only if /var/run/reboot-required exists." onClick={() => runJob('linux_update', { reboot: true })}>
                     <Icons.Download/> Update+Reboot
-                  </button>
+                  </QuickActionButton>
                 </>
               )}
               {isLinux && info.docker_running != null && (
-                <button className="btn" onClick={() => runJob('docker_update')} style={{ justifyContent: 'center', padding: '8px 6px', fontSize: 11 }}>
+                <QuickActionButton tooltip="Pulls the latest image for every running Docker container on this host. It does not recreate containers unless a specific Docker update job includes restart details." onClick={() => runJob('docker_update')}>
                   <Icons.Box/> Docker Update
-                </button>
+                </QuickActionButton>
               )}
-              <button className="btn" onClick={() => runJob('list_crons')} style={{ justifyContent: 'center', padding: '8px 6px', fontSize: 11 }}>
+              <QuickActionButton tooltip={isWindows ? 'Fetches enabled Windows Scheduled Tasks and stores the result in the Jobs tab for this host.' : 'Fetches root/user crontabs plus systemd timers and stores the result in the Jobs tab for this host.'} onClick={() => runJob('list_crons')}>
                 <Icons.List/> {isWindows ? 'Sched Tasks' : 'Crons/Timers'}
-              </button>
-              <button className="btn" onClick={() => runJob('disk_cleanup')} style={{ justifyContent: 'center', padding: '8px 6px', fontSize: 11 }}>
+              </QuickActionButton>
+              <QuickActionButton tooltip={isWindows ? 'Clears temp files, Windows Update download cache, recycle bin, and event logs, then reports disk space.' : 'Runs apt autoremove/autoclean, vacuums journal logs to 7 days, runs docker system prune -f, clears /tmp, then reports df -h.'} onClick={() => runJob('disk_cleanup')}>
                 <Icons.Trash/> Disk Cleanup
-              </button>
-              <button className="btn" onClick={() => runJob('reboot', { delay: 30 })} style={{ justifyContent: 'center', padding: '8px 6px', fontSize: 11 }}>
+              </QuickActionButton>
+              <QuickActionButton tooltip="Queues a reboot job for this host with delay set to 30 seconds. Linux schedules shutdown -r, Windows uses shutdown /r." onClick={() => runJob('reboot', { delay: 30 })}>
                 <Icons.Power/> Reboot (30s)
-              </button>
+              </QuickActionButton>
               {isLinux && (
-                <button className="btn" onClick={() => runJob('backup', { script: '/root/proxmox-vm-backup.sh' })} style={{ justifyContent: 'center', padding: '8px 6px', fontSize: 11 }}>
+                <QuickActionButton tooltip="Runs the backup job with script /root/proxmox-vm-backup.sh on this Linux host. The agent executes it with bash and records the output in Jobs." onClick={() => runJob('backup', { script: '/root/proxmox-vm-backup.sh' })}>
                   <Icons.HardDrive/> Run Backup
-                </button>
+                </QuickActionButton>
               )}
               {isWindows && (
-                <button className="btn" onClick={() => runJob('disable_autologin')} style={{ justifyContent: 'center', padding: '8px 6px', fontSize: 11 }}>
+                <QuickActionButton tooltip="Removes Windows auto-login registry values for this host." onClick={() => runJob('disable_autologin')}>
                   <Icons.Key/> Disable AutoLogin
-                </button>
+                </QuickActionButton>
               )}
             </div>
             <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 8 }}>
