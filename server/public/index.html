@@ -414,7 +414,7 @@
       align-items: center;
       justify-content: space-between;
       margin-bottom: 24px;
-      padding-right: 52px;
+      padding-right: 178px;
     }
     .page-title {
       font-size: 20px;
@@ -536,10 +536,20 @@
     .metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; margin-bottom: 16px; }
     .metric-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 14px; box-shadow: var(--card-shadow); }
     .metric-value { font-family: 'Geist Mono', monospace; font-size: 22px; font-weight: 700; color: var(--text-primary); }
-    .theme-button {
+    .top-actions {
       position: fixed;
       top: 24px;
       right: 32px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      z-index: 250;
+    }
+    .top-logout {
+      height: 36px;
+      padding: 0 14px;
+    }
+    .theme-button {
       width: 36px;
       height: 36px;
       display: inline-flex;
@@ -551,7 +561,6 @@
       color: var(--text-secondary);
       box-shadow: var(--card-shadow);
       cursor: pointer;
-      z-index: 250;
       transition: all 0.15s;
     }
     .theme-button:hover { color: var(--accent); border-color: var(--accent); background: var(--bg-card-hover); }
@@ -563,8 +572,9 @@
     @media (max-width: 768px) {
       .sidebar { display: none; }
       .main { margin-left: 0; padding: 16px; }
-      .page-header { padding-right: 48px; }
-      .theme-button { top: 16px; right: 16px; }
+      .page-header { padding-right: 148px; }
+      .top-actions { top: 16px; right: 16px; }
+      .top-logout { padding: 0 10px; }
       .hosts-grid { grid-template-columns: 1fr; }
       .actions-grid { grid-template-columns: 1fr 1fr; }
     }
@@ -3140,9 +3150,6 @@ function App() {
             </div>
           );
         })}
-        <div style={{ padding: '12px 20px' }}>
-          <button className="btn btn-sm" style={{ width: '100%', justifyContent: 'center' }} onClick={logout}><Icons.Power/> Logout</button>
-        </div>
         <div className="nav-section">Status</div>
         <div style={{ padding: '4px 20px' }}>
           {hosts.map(h => (
@@ -3155,14 +3162,19 @@ function App() {
       </div>
 
       <div className="main">
-        <button
-          className="theme-button"
-          title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
-          aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
-          onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-        >
-          {theme === 'dark' ? <Icons.Moon/> : <Icons.Sun/>}
-        </button>
+        <div className="top-actions">
+          <button className="btn top-logout" onClick={logout} title="Logout" aria-label="Logout">
+            <Icons.Power/> Logout
+          </button>
+          <button
+            className="theme-button"
+            title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+            aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+            onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+          >
+            {theme === 'dark' ? <Icons.Moon/> : <Icons.Sun/>}
+          </button>
+        </div>
         {page === 'hosts' && <HostsPage hosts={hosts} addToast={addToast}/>}
         {page === 'monitoring' && <MonitoringPage hosts={hosts} addToast={addToast} currentUser={currentUser}/>}
         {page === 'actions' && <ActionsPage hosts={hosts} addToast={addToast}/>}
