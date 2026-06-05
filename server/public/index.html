@@ -8,22 +8,22 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Inline+Text:wght@900&family=Onest:wght@100..900&family=Geist+Mono:wght@400..700&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg-primary: #080c14;
-      --bg-secondary: #0e1422;
-      --bg-card: #131b2e;
-      --bg-card-hover: #182238;
-      --bg-input: #0b1019;
-      --border: #1a2640;
-      --border-focus: #4f8ff7;
-      --text-primary: #e8edf5;
-      --text-secondary: #8b9dc3;
-      --text-dim: #4e6387;
-      --accent: #4f8ff7;
-      --accent-hover: #3a7ae8;
-      --accent-glow: rgba(79,143,247,0.15);
+      --bg-primary: #06090F;
+      --bg-secondary: #0F1424;
+      --bg-card: #161F33;
+      --bg-card-hover: #1d2942;
+      --bg-input: #0A0E1A;
+      --border: #1F2A40;
+      --border-focus: #06B6D4;
+      --text-primary: #EDEBE3;
+      --text-secondary: #8A93A7;
+      --text-dim: #647086;
+      --accent: #06B6D4;
+      --accent-hover: #38BDF8;
+      --accent-glow: rgba(6,182,212,0.18);
       --green: #34d399;
       --green-bg: rgba(52,211,153,0.1);
       --red: #f87171;
@@ -31,8 +31,25 @@
       --yellow: #fbbf24;
       --yellow-bg: rgba(251,191,36,0.1);
       --orange: #fb923c;
-      --purple: #a78bfa;
+      --purple: #67E8F9;
       --card-shadow: 0 1px 3px rgba(0,0,0,0.3), 0 0 0 1px var(--border);
+    }
+
+    [data-theme="light"] {
+      --bg-primary: #F5F4EF;
+      --bg-secondary: #FFFFFF;
+      --bg-card: #FFFFFF;
+      --bg-card-hover: #ECFEFF;
+      --bg-input: #FFFFFF;
+      --border: #E0DED6;
+      --border-focus: #06B6D4;
+      --text-primary: #0A0E1A;
+      --text-secondary: #374151;
+      --text-dim: #6B7385;
+      --accent: #0E7490;
+      --accent-hover: #06B6D4;
+      --accent-glow: rgba(6,182,212,0.14);
+      --card-shadow: 0 1px 3px rgba(10,14,26,0.08), 0 0 0 1px var(--border);
     }
 
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -40,12 +57,12 @@
     body {
       background: var(--bg-primary);
       color: var(--text-primary);
-      font-family: 'Plus Jakarta Sans', -apple-system, sans-serif;
+      font-family: 'Onest', -apple-system, sans-serif;
       line-height: 1.5;
       min-height: 100vh;
     }
 
-    code, .mono { font-family: 'JetBrains Mono', monospace; }
+    code, .mono { font-family: 'Geist Mono', monospace; }
 
     /* Scrollbar */
     ::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -56,7 +73,7 @@
     .app { display: flex; min-height: 100vh; }
     .sidebar {
       width: 220px;
-      background: linear-gradient(180deg, var(--bg-secondary) 0%, #0a1018 100%);
+      background: linear-gradient(180deg, var(--bg-secondary) 0%, var(--bg-primary) 100%);
       border-right: 1px solid var(--border);
       padding: 20px 0;
       flex-shrink: 0;
@@ -81,12 +98,13 @@
       margin-bottom: 12px;
     }
     .sidebar-logo h1 {
-      font-family: 'JetBrains Mono', monospace;
+      font-family: 'Geist Mono', monospace;
       font-size: 18px;
       font-weight: 700;
       color: var(--accent);
-      letter-spacing: -0.5px;
+      letter-spacing: 0;
     }
+    .brand-img { width: 128px; height: auto; display: block; margin-bottom: 8px; }
     .sidebar-logo span {
       font-size: 11px;
       color: var(--text-dim);
@@ -126,7 +144,7 @@
     .card {
       background: var(--bg-card);
       border: 1px solid var(--border);
-      border-radius: 10px;
+      border-radius: 8px;
       padding: 20px;
       margin-bottom: 16px;
       box-shadow: var(--card-shadow);
@@ -152,7 +170,7 @@
       border-radius: 20px;
       font-size: 11px;
       font-weight: 600;
-      font-family: 'JetBrains Mono', monospace;
+      font-family: 'Geist Mono', monospace;
     }
     .badge-online { background: var(--green-bg); color: var(--green); }
     .badge-offline { background: var(--red-bg); color: var(--red); }
@@ -225,7 +243,7 @@
       border-color: var(--border-focus);
     }
     .select { appearance: none; cursor: pointer; }
-    .textarea { resize: vertical; min-height: 60px; font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+    .textarea { resize: vertical; min-height: 60px; font-family: 'Geist Mono', monospace; font-size: 12px; }
     .form-row { display: flex; gap: 12px; margin-bottom: 12px; }
     .form-group { flex: 1; }
     .form-label {
@@ -272,7 +290,7 @@
     .host-card {
       background: var(--bg-card);
       border: 1px solid var(--border);
-      border-radius: 10px;
+      border-radius: 8px;
       padding: 12px;
       cursor: pointer;
       transition: all 0.2s ease;
@@ -300,7 +318,7 @@
     .host-os {
       font-size: 11px;
       color: var(--text-dim);
-      font-family: 'JetBrains Mono', monospace;
+      font-family: 'Geist Mono', monospace;
     }
     .host-stats {
       display: grid;
@@ -314,7 +332,7 @@
     }
     .host-stat strong {
       color: var(--text-secondary);
-      font-family: 'JetBrains Mono', monospace;
+      font-family: 'Geist Mono', monospace;
     }
 
     /* Modal */
@@ -332,7 +350,7 @@
     .modal {
       background: var(--bg-secondary);
       border: 1px solid var(--border);
-      border-radius: 12px;
+      border-radius: 8px;
       width: 100%;
       max-width: 700px;
       max-height: 85vh;
@@ -352,7 +370,7 @@
       border: 1px solid var(--border);
       border-radius: 6px;
       padding: 12px;
-      font-family: 'JetBrains Mono', monospace;
+      font-family: 'Geist Mono', monospace;
       font-size: 11px;
       line-height: 1.6;
       max-height: 300px;
@@ -372,7 +390,7 @@
     .action-tile {
       background: var(--bg-card);
       border: 1px solid var(--border);
-      border-radius: 10px;
+      border-radius: 8px;
       padding: 14px;
       cursor: pointer;
       transition: all 0.2s ease;
@@ -399,7 +417,7 @@
     .page-title {
       font-size: 20px;
       font-weight: 700;
-      letter-spacing: -0.3px;
+      letter-spacing: 0;
     }
     .page-desc {
       font-size: 13px;
@@ -501,6 +519,26 @@
       to { opacity: 1; transform: translateX(0); }
     }
 
+    .login-shell {
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      background:
+        radial-gradient(circle at 20% 10%, rgba(6,182,212,0.16), transparent 28%),
+        linear-gradient(135deg, var(--bg-primary) 0%, var(--bg-secondary) 100%);
+    }
+    .login-panel { width: min(420px, 100%); }
+    .login-brand { display: flex; align-items: center; gap: 14px; margin-bottom: 20px; }
+    .login-brand img { width: 148px; height: auto; }
+    .metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; margin-bottom: 16px; }
+    .metric-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 14px; box-shadow: var(--card-shadow); }
+    .metric-value { font-family: 'Geist Mono', monospace; font-size: 22px; font-weight: 700; color: var(--text-primary); }
+    .theme-toggle { display: flex; align-items: center; gap: 8px; padding: 0 20px; margin-top: 12px; }
+    .script-editor { min-height: 180px; font-family: 'Geist Mono', monospace; }
+    .copy-block { display: flex; gap: 8px; align-items: center; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; padding: 10px; }
+    .copy-block code { flex: 1; word-break: break-all; color: var(--text-secondary); }
+
     @media (max-width: 768px) {
       .sidebar { display: none; }
       .main { margin-left: 0; padding: 16px; }
@@ -519,12 +557,37 @@ const { useState, useEffect, useCallback, useRef } = React;
 const API = window.location.origin;
 
 async function api(path, opts = {}) {
+  const token = localStorage.getItem('labctl_token');
+  const { headers: optHeaders, ...fetchOpts } = opts;
   const res = await fetch(`${API}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
-    ...opts,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+      ...(optHeaders || {})
+    },
+    credentials: 'same-origin',
+    ...fetchOpts,
     body: opts.body ? JSON.stringify(opts.body) : undefined
   });
-  return res.json();
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok && !opts.allowUnauthorized) throw new Error(data.error || `Request failed (${res.status})`);
+  return data;
+}
+
+async function apiDownload(path, filename) {
+  const token = localStorage.getItem('labctl_token');
+  const res = await fetch(`${API}${path}`, {
+    headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+    credentials: 'same-origin'
+  });
+  if (!res.ok) throw new Error('Download failed');
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 // ── Icons (inline SVGs) ──────────────────────────────────
@@ -548,6 +611,9 @@ const Icons = {
   Pause: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>,
   Stop: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>,
   Eye: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>,
+  User: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M20 21a8 8 0 0 0-16 0"/><circle cx="12" cy="7" r="4"/></svg>,
+  Moon: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/></svg>,
+  Sun: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>,
 };
 
 // ── Toast system ──────────────────────────────────────────
@@ -1152,7 +1218,7 @@ function ActionsPage({ hosts, addToast }) {
                         <div className={`checkbox ${selectedContainers.includes(c.name) ? 'checked' : ''}`}>
                           {selectedContainers.includes(c.name) && <span style={{ color: 'white', fontSize: 10 }}>✓</span>}
                         </div>
-                        <span style={{ fontSize: 12, fontFamily: 'JetBrains Mono, monospace' }}>{c.name}</span>
+                        <span style={{ fontSize: 12, fontFamily: 'Geist Mono, monospace' }}>{c.name}</span>
                         <span style={{ fontSize: 10, color: 'var(--text-dim)' }}>({c.host})</span>
                       </div>
                     )) : <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>No containers detected on selected hosts.</div>}
@@ -1245,7 +1311,7 @@ function ActionsPage({ hosts, addToast }) {
                           <div className={`checkbox ${selectedServices.includes(s) ? 'checked' : ''}`}>
                             {selectedServices.includes(s) && <span style={{ color: 'white', fontSize: 10 }}>✓</span>}
                           </div>
-                          <span style={{ fontSize: 12, fontFamily: 'JetBrains Mono, monospace' }}>{s}</span>
+                          <span style={{ fontSize: 12, fontFamily: 'Geist Mono, monospace' }}>{s}</span>
                         </div>
                       ))}
                     </div>
@@ -1406,7 +1472,7 @@ function ActionsPage({ hosts, addToast }) {
                       <div key={i} onClick={() => entry.is_dir && navigateTo(entry.name)} style={{
                         display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px',
                         borderBottom: '1px solid var(--border)', cursor: entry.is_dir ? 'pointer' : 'default',
-                        fontSize: 12, fontFamily: 'JetBrains Mono, monospace',
+                        fontSize: 12, fontFamily: 'Geist Mono, monospace',
                       }}>
                         <span style={{ color: entry.is_dir ? 'var(--accent)' : 'var(--text-dim)', fontSize: 14 }}>
                           {entry.is_dir ? '\uD83D\uDCC1' : '\uD83D\uDCC4'}
@@ -1607,7 +1673,7 @@ function ActionsPage({ hosts, addToast }) {
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
                   <StatusBadge status={job.status}/>
-                  <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 12, color: 'var(--text-primary)' }}>
+                  <span style={{ fontFamily: 'Geist Mono, monospace', fontSize: 12, color: 'var(--text-primary)' }}>
                     {job.type}
                   </span>
                   <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>
@@ -1710,7 +1776,7 @@ function JobsPage({ hosts, addToast }) {
             {filtered.map(job => (
               <tr key={job.id}>
                 <td><StatusBadge status={job.status}/></td>
-                <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 12 }}>{job.type}</td>
+                <td style={{ fontFamily: 'Geist Mono, monospace', fontSize: 12 }}>{job.type}</td>
                 <td>{job.hostname || job.host_id?.slice(0, 8)}</td>
                 <td style={{ fontSize: 12, color: 'var(--text-dim)' }}>{job.created_at}</td>
                 <td>
@@ -2034,7 +2100,7 @@ function SchedulesPage({ hosts, addToast }) {
 
             {/* Raw cron display/edit */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
-              <code style={{ fontSize: 12, color: 'var(--accent)', background: 'var(--bg-input)', padding: '4px 10px', borderRadius: 4, border: '1px solid var(--border)', flex: 1, fontFamily: 'JetBrains Mono, monospace' }}>
+              <code style={{ fontSize: 12, color: 'var(--accent)', background: 'var(--bg-input)', padding: '4px 10px', borderRadius: 4, border: '1px solid var(--border)', flex: 1, fontFamily: 'Geist Mono, monospace' }}>
                 {form.cron || '0 1 * * 0'}
               </code>
               {form._freq !== 'custom' && <span style={{ fontSize: 10, color: 'var(--text-dim)' }}>auto-generated</span>}
@@ -2257,7 +2323,7 @@ function CronTaskList({ tasks, isWindows, onRefresh, onAction, onRunNow, hostnam
                 display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', cursor: 'pointer',
                 borderLeft: `3px solid ${stateReady ? 'var(--green)' : 'var(--text-dim)'}`
               }}>
-                <span style={{ fontSize: 12, fontWeight: 600, flex: 1, fontFamily: 'JetBrains Mono, monospace' }}>{name}</span>
+                <span style={{ fontSize: 12, fontWeight: 600, flex: 1, fontFamily: 'Geist Mono, monospace' }}>{name}</span>
                 {isWindows && <StatusBadge status={stateReady ? 'online' : 'offline'}/>}
                 {!isWindows && t.type === 'timer' && <span className="badge badge-running"><span className="badge-dot"/>timer</span>}
                 {!isWindows && t.type === 'cron' && <span className="badge badge-pending"><span className="badge-dot"/>cron</span>}
@@ -2282,7 +2348,7 @@ function CronTaskList({ tasks, isWindows, onRefresh, onAction, onRunNow, hostnam
                       {t.schedule && <div style={{ fontSize: 11, marginBottom: 4 }}><span style={{ color: 'var(--text-dim)' }}>Schedule: </span><span className="mono">{t.schedule}</span></div>}
                       {t.command && <div style={{ fontSize: 11, marginBottom: 4 }}><span style={{ color: 'var(--text-dim)' }}>Command: </span><span className="mono" style={{ wordBreak: 'break-all' }}>{t.command}</span></div>}
                       {t.details && <div style={{ fontSize: 11, marginBottom: 4 }}><span style={{ color: 'var(--text-dim)' }}>Details: </span>{t.details}</div>}
-                      <div style={{ fontSize: 10, color: 'var(--text-dim)', marginBottom: 4, fontFamily: 'JetBrains Mono, monospace' }}>{t.raw}</div>
+                      <div style={{ fontSize: 10, color: 'var(--text-dim)', marginBottom: 4, fontFamily: 'Geist Mono, monospace' }}>{t.raw}</div>
                     </>
                   )}
                   <div className="btn-group" style={{ marginTop: 8 }}>
@@ -2352,7 +2418,7 @@ function HostDetailModal({ host, onClose, addToast }) {
   const InfoRow = ({ label, value, mono }) => (
     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--border)' }}>
       <span style={{ fontSize: 12, color: 'var(--text-dim)' }}>{label}</span>
-      <span style={{ fontSize: 12, color: 'var(--text-primary)', fontFamily: mono ? 'JetBrains Mono, monospace' : 'inherit' }}>{value || '\u2014'}</span>
+      <span style={{ fontSize: 12, color: 'var(--text-primary)', fontFamily: mono ? 'Geist Mono, monospace' : 'inherit' }}>{value || '\u2014'}</span>
     </div>
   );
 
@@ -2366,7 +2432,7 @@ function HostDetailModal({ host, onClose, addToast }) {
               <span style={{ fontSize: 18, fontWeight: 700 }}>{host.hostname}</span>
               <StatusBadge status={isOnline ? 'online' : 'offline'}/>
             </div>
-            <div style={{ fontSize: 12, color: 'var(--text-dim)', fontFamily: 'JetBrains Mono, monospace' }}>
+            <div style={{ fontSize: 12, color: 'var(--text-dim)', fontFamily: 'Geist Mono, monospace' }}>
               {host.os} &middot; {host.ip || info.ip} &middot; {info.platform || ''}
             </div>
           </div>
@@ -2404,7 +2470,7 @@ function HostDetailModal({ host, onClose, addToast }) {
               {(info.drives && info.drives.length > 0) ? info.drives.map((drv, i) => (
                 <div key={i} style={{ marginBottom: i < info.drives.length - 1 ? 10 : 0 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                    <span style={{ fontSize: 11, fontFamily: 'JetBrains Mono, monospace', color: 'var(--text-primary)' }}>
+                    <span style={{ fontSize: 11, fontFamily: 'Geist Mono, monospace', color: 'var(--text-primary)' }}>
                       {drv.device} ({drv.mount})
                     </span>
                     <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>
@@ -2452,8 +2518,8 @@ function HostDetailModal({ host, onClose, addToast }) {
                     <tbody>
                       {info.docker_details.map((c, i) => (
                         <tr key={i}>
-                          <td style={{ fontFamily: 'JetBrains Mono, monospace', color: 'var(--green)' }}>{c.name}</td>
-                          <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 10 }}>{c.image}</td>
+                          <td style={{ fontFamily: 'Geist Mono, monospace', color: 'var(--green)' }}>{c.name}</td>
+                          <td style={{ fontFamily: 'Geist Mono, monospace', fontSize: 10 }}>{c.image}</td>
                           <td>{c.status}</td>
                           <td style={{ fontSize: 10 }}>{c.ports || '\u2014'}</td>
                         </tr>
@@ -2473,7 +2539,7 @@ function HostDetailModal({ host, onClose, addToast }) {
                     <span key={c} style={{
                       background: 'var(--bg-primary)', border: '1px solid var(--border)',
                       borderRadius: 4, padding: '3px 8px', fontSize: 11,
-                      fontFamily: 'JetBrains Mono, monospace', color: 'var(--green)'
+                      fontFamily: 'Geist Mono, monospace', color: 'var(--green)'
                     }}>{c}</span>
                   ))}
                 </div>
@@ -2506,7 +2572,7 @@ function HostDetailModal({ host, onClose, addToast }) {
                   {jobs.slice(0, 30).map(job => (
                     <tr key={job.id}>
                       <td><StatusBadge status={job.status}/></td>
-                      <td style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 11 }}>{job.type}</td>
+                      <td style={{ fontFamily: 'Geist Mono, monospace', fontSize: 11 }}>{job.type}</td>
                       <td style={{ fontSize: 11, color: 'var(--text-dim)' }}>{job.created_at?.slice(0, 19)}</td>
                       <td>
                         <button className="btn btn-sm" onClick={() => setViewJob(job)}><Icons.Eye/></button>
@@ -2703,10 +2769,285 @@ function HostDetailModal({ host, onClose, addToast }) {
   );
 }
 
+function LoginPage({ onLogin, addToast }) {
+  const [form, setForm] = useState({ username: 'LabCTLAdmin', password: '' });
+  const [busy, setBusy] = useState(false);
+  const submit = async (e) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const res = await api('/api/auth/login', { method: 'POST', body: form });
+      localStorage.setItem('labctl_token', res.token);
+      onLogin(res.user);
+    } catch (e) {
+      addToast(e.message, 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="login-shell">
+      <form className="card login-panel" onSubmit={submit}>
+        <div className="login-brand">
+          <img src="/slobal-wordmark.svg" alt="Slobal"/>
+          <div>
+            <div className="page-title">LabCTL</div>
+            <div className="page-desc">Homelab control plane</div>
+          </div>
+        </div>
+        <div className="form-group" style={{ marginBottom: 12 }}>
+          <label className="form-label">User</label>
+          <input className="input" value={form.username} onChange={e => setForm({ ...form, username: e.target.value })}/>
+        </div>
+        <div className="form-group" style={{ marginBottom: 16 }}>
+          <label className="form-label">Password</label>
+          <input className="input" type="password" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} autoFocus/>
+        </div>
+        <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }} disabled={busy}>
+          <Icons.Key/> {busy ? 'Signing in...' : 'Sign in'}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+function MonitoringPage({ hosts, addToast, currentUser }) {
+  const [health, setHealth] = useState([]);
+  const [metrics, setMetrics] = useState([]);
+  const [settings, setSettings] = useState({ retention_days: 30, poll_interval_seconds: 300 });
+  const [hostId, setHostId] = useState('');
+
+  const load = async () => {
+    try {
+      const [h, m, s] = await Promise.all([
+        api('/api/health'),
+        api(`/api/metrics?limit=300${hostId ? `&host_id=${hostId}` : ''}`),
+        api('/api/settings')
+      ]);
+      setHealth(h); setMetrics(m); setSettings(s);
+    } catch (e) { addToast(e.message, 'error'); }
+  };
+  useEffect(() => { load(); }, [hostId]);
+
+  const saveSettings = async () => {
+    try {
+      const next = await api('/api/settings', { method: 'PUT', body: settings });
+      setSettings(next);
+      addToast('Monitoring settings saved');
+    } catch (e) { addToast(e.message, 'error'); }
+  };
+
+  const criticalCount = health.filter(h => h.criticals?.length).length;
+  const maxDisk = Math.max(0, ...metrics.flatMap(m => (m.drives || []).map(d => Number(d.percent || 0))));
+  const maxRam = Math.max(0, ...metrics.map(m => Number(m.ram_used_percent || 0)));
+
+  return (
+    <div>
+      <div className="page-header">
+        <div>
+          <div className="page-title">Monitoring</div>
+          <div className="page-desc">Heartbeat history, disk growth, Docker state, and service warnings.</div>
+        </div>
+        <button className="btn" onClick={load}><Icons.RefreshCw/> Refresh</button>
+      </div>
+      <div className="metric-grid">
+        <div className="metric-card"><div className="page-desc">Hosts with warnings</div><div className="metric-value">{criticalCount}</div></div>
+        <div className="metric-card"><div className="page-desc">Highest disk usage</div><div className="metric-value">{maxDisk}%</div></div>
+        <div className="metric-card"><div className="page-desc">Highest RAM usage</div><div className="metric-value">{maxRam}%</div></div>
+        <div className="metric-card"><div className="page-desc">Snapshots retained</div><div className="metric-value">{metrics.length}</div></div>
+      </div>
+      <div className="card">
+        <div className="card-header"><div className="card-title">Retention</div></div>
+        <div className="form-row">
+          <div className="form-group">
+            <label className="form-label">Days to keep</label>
+            <input className="input" type="number" min="1" value={settings.retention_days} onChange={e => setSettings({ ...settings, retention_days: e.target.value })}/>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Snapshot interval seconds</label>
+            <input className="input" type="number" min="60" value={settings.poll_interval_seconds} onChange={e => setSettings({ ...settings, poll_interval_seconds: e.target.value })}/>
+          </div>
+          <div style={{ alignSelf: 'end' }}>
+            <button className="btn btn-primary" onClick={saveSettings} disabled={currentUser.role !== 'admin'}><Icons.Settings/> Save</button>
+          </div>
+        </div>
+      </div>
+      <div className="card">
+        <div className="card-header">
+          <div className="card-title">Host health</div>
+          <select className="select" style={{ maxWidth: 260 }} value={hostId} onChange={e => setHostId(e.target.value)}>
+            <option value="">All hosts</option>
+            {hosts.map(h => <option key={h.id} value={h.id}>{h.hostname}</option>)}
+          </select>
+        </div>
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>Host</th><th>Last seen</th><th>Disk</th><th>RAM</th><th>Docker</th><th>Warnings</th></tr></thead>
+            <tbody>
+              {health.map(h => {
+                const latest = h.latest || {};
+                const disk = Math.max(0, ...(latest.drives || []).map(d => Number(d.percent || 0)));
+                return (
+                  <tr key={h.host_id}>
+                    <td>{h.hostname}</td>
+                    <td className="mono">{h.last_seen?.slice(0, 19)}</td>
+                    <td>{disk}%</td>
+                    <td>{latest.ram_used_percent ?? 'N/A'}%</td>
+                    <td>{latest.docker_running ?? 0}/{latest.docker_total ?? 0}</td>
+                    <td>{h.criticals?.length ? h.criticals.join(', ') : 'Clear'}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ScriptsPage({ hosts, addToast }) {
+  const [scripts, setScripts] = useState([]);
+  const [form, setForm] = useState({ name: '', description: '', os: 'any', target: 'host', command: '', timeout: 300 });
+  const [selected, setSelected] = useState('');
+  const [hostIds, setHostIds] = useState([]);
+  const [container, setContainer] = useState('');
+
+  const load = async () => { try { setScripts(await api('/api/scripts')); } catch (e) { addToast(e.message, 'error'); } };
+  useEffect(() => { load(); }, []);
+
+  const create = async () => {
+    try {
+      await api('/api/scripts', { method: 'POST', body: form });
+      setForm({ name: '', description: '', os: 'any', target: 'host', command: '', timeout: 300 });
+      load(); addToast('Script saved');
+    } catch (e) { addToast(e.message, 'error'); }
+  };
+  const run = async (script) => {
+    try {
+      const res = await api(`/api/scripts/${script.id}/run`, { method: 'POST', body: { host_ids: hostIds, container } });
+      addToast(`Queued ${res.filter(r => r.job_id).length} job(s)`);
+    } catch (e) { addToast(e.message, 'error'); }
+  };
+
+  return (
+    <div>
+      <div className="page-header">
+        <div><div className="page-title">Scripts & Jobs</div><div className="page-desc">Save repeatable host or Docker-container commands.</div></div>
+      </div>
+      <div className="card">
+        <div className="card-header"><div className="card-title">New script</div></div>
+        <div className="form-row">
+          <input className="input" placeholder="Name" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })}/>
+          <select className="select" value={form.os} onChange={e => setForm({ ...form, os: e.target.value })}><option value="any">Any OS</option><option value="linux">Linux</option><option value="windows">Windows</option></select>
+          <select className="select" value={form.target} onChange={e => setForm({ ...form, target: e.target.value })}><option value="host">Host</option><option value="container">Docker container</option></select>
+        </div>
+        <input className="input" style={{ marginBottom: 12 }} placeholder="Description" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })}/>
+        <textarea className="textarea script-editor" placeholder="Command or script body" value={form.command} onChange={e => setForm({ ...form, command: e.target.value })}/>
+        <div className="form-row" style={{ marginTop: 12 }}>
+          <div className="form-group"><label className="form-label">Timeout seconds</label><input className="input" type="number" value={form.timeout} onChange={e => setForm({ ...form, timeout: e.target.value })}/></div>
+          <div style={{ alignSelf: 'end' }}><button className="btn btn-primary" onClick={create}><Icons.Play/> Save script</button></div>
+        </div>
+      </div>
+      <div className="card">
+        <div className="card-header"><div className="card-title">Run saved script</div></div>
+        <div className="form-row">
+          <select className="select" value={selected} onChange={e => setSelected(e.target.value)}>
+            <option value="">Choose script</option>
+            {scripts.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+          <input className="input" placeholder="Container name, if needed" value={container} onChange={e => setContainer(e.target.value)}/>
+        </div>
+        <div className="hosts-grid">
+          {hosts.map(h => (
+            <label key={h.id} className="host-card">
+              <input type="checkbox" checked={hostIds.includes(h.id)} onChange={e => setHostIds(e.target.checked ? [...hostIds, h.id] : hostIds.filter(id => id !== h.id))}/> {h.hostname}
+              <div className="host-os">{h.os}</div>
+            </label>
+          ))}
+        </div>
+        <button className="btn btn-primary" disabled={!selected || !hostIds.length} onClick={() => run(scripts.find(s => s.id === selected))}><Icons.Play/> Queue job</button>
+      </div>
+    </div>
+  );
+}
+
+function AgentsPage({ addToast }) {
+  const [info, setInfo] = useState(null);
+  useEffect(() => { api('/api/agents/info').then(setInfo).catch(e => addToast(e.message, 'error')); }, []);
+  const download = async (file) => {
+    try { await apiDownload(file.path, file.path.split('/').pop()); } catch (e) { addToast(e.message, 'error'); }
+  };
+  const ws = info?.server_url || 'ws://10.20.1.20:7700/ws/agent';
+  return (
+    <div>
+      <div className="page-header"><div><div className="page-title">Agent Downloads</div><div className="page-desc">Install agents on Linux and Windows hosts.</div></div></div>
+      <div className="metric-grid">
+        {(info?.files || []).map(f => (
+          <div className="metric-card" key={f.id}>
+            <div className="card-title">{f.label}</div>
+            <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={() => download(f)}><Icons.Download/> Download</button>
+          </div>
+        ))}
+      </div>
+      <div className="card">
+        <div className="card-title" style={{ marginBottom: 12 }}>Linux</div>
+        <div className="copy-block"><code>chmod +x setup-linux.sh && sudo ./setup-linux.sh {ws}</code></div>
+      </div>
+      <div className="card">
+        <div className="card-title" style={{ marginBottom: 12 }}>Windows PowerShell as Administrator</div>
+        <div className="copy-block"><code>Set-ExecutionPolicy Bypass -Scope Process -Force; .\setup-windows.ps1 -ServerUrl "{ws}"</code></div>
+      </div>
+    </div>
+  );
+}
+
+function UsersPage({ addToast }) {
+  const [users, setUsers] = useState([]);
+  const [form, setForm] = useState({ username: '', password: '', role: 'readonly' });
+  const load = async () => { try { setUsers(await api('/api/users')); } catch (e) { addToast(e.message, 'error'); } };
+  useEffect(() => { load(); }, []);
+  const create = async () => {
+    try {
+      await api('/api/users', { method: 'POST', body: form });
+      setForm({ username: '', password: '', role: 'readonly' });
+      load(); addToast('User created');
+    } catch (e) { addToast(e.message, 'error'); }
+  };
+  const remove = async (id) => {
+    try { await api(`/api/users/${id}`, { method: 'DELETE' }); load(); addToast('User removed'); }
+    catch (e) { addToast(e.message, 'error'); }
+  };
+  return (
+    <div>
+      <div className="page-header"><div><div className="page-title">Local Users</div><div className="page-desc">Create admin and readonly accounts.</div></div></div>
+      <div className="card">
+        <div className="form-row">
+          <input className="input" placeholder="Username" value={form.username} onChange={e => setForm({ ...form, username: e.target.value })}/>
+          <input className="input" type="password" placeholder="Password" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })}/>
+          <select className="select" value={form.role} onChange={e => setForm({ ...form, role: e.target.value })}><option value="readonly">Readonly</option><option value="admin">Admin</option></select>
+          <button className="btn btn-primary" onClick={create}><Icons.User/> Create</button>
+        </div>
+      </div>
+      <div className="card">
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>User</th><th>Role</th><th>Created</th><th></th></tr></thead>
+            <tbody>{users.map(u => <tr key={u.id}><td>{u.username}</td><td>{u.role}</td><td className="mono">{u.created_at?.slice(0, 19)}</td><td><button className="btn btn-sm btn-danger" onClick={() => remove(u.id)}><Icons.Trash/></button></td></tr>)}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main App ──────────────────────────────────────────────
 function App() {
   const [page, setPage] = useState('hosts');
   const [hosts, setHosts] = useState([]);
+  const [currentUser, setCurrentUser] = useState(null);
+  const [loadingAuth, setLoadingAuth] = useState(true);
+  const [theme, setTheme] = useState(localStorage.getItem('labctl_theme') || 'dark');
   const { toasts, addToast } = useToasts();
 
   const loadHosts = async () => {
@@ -2714,25 +3055,57 @@ function App() {
   };
 
   useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('labctl_theme', theme);
+  }, [theme]);
+
+  useEffect(() => {
+    api('/api/auth/me', { allowUnauthorized: true })
+      .then(res => setCurrentUser(res.user || null))
+      .finally(() => setLoadingAuth(false));
+  }, []);
+
+  useEffect(() => {
+    if (!currentUser) return;
     loadHosts();
     const i = setInterval(loadHosts, 5000);
     return () => clearInterval(i);
-  }, []);
+  }, [currentUser]);
+
+  const logout = async () => {
+    try { await api('/api/auth/logout', { method: 'POST' }); } catch(e) {}
+    localStorage.removeItem('labctl_token');
+    setCurrentUser(null);
+    setPage('hosts');
+  };
 
   const navItems = [
     { id: 'hosts', label: 'Hosts', icon: Icons.Server },
+    { id: 'monitoring', label: 'Monitoring', icon: Icons.Activity },
     { id: 'actions', label: 'Actions', icon: Icons.Play },
+    { id: 'scripts', label: 'Scripts', icon: Icons.Terminal },
     { id: 'jobs', label: 'Jobs', icon: Icons.Activity },
     { id: 'schedules', label: 'Schedules', icon: Icons.Clock },
     { id: 'credentials', label: 'Credentials', icon: Icons.Key },
+    { id: 'agents', label: 'Agents', icon: Icons.Download },
+    ...(currentUser?.role === 'admin' ? [{ id: 'users', label: 'Users', icon: Icons.User }] : []),
   ];
+
+  if (loadingAuth) return <div className="login-shell"><div className="metric-card"><div className="metric-value">LabCTL</div><div className="page-desc">Loading session...</div></div></div>;
+  if (!currentUser) return (
+    <>
+      <LoginPage onLogin={setCurrentUser} addToast={addToast}/>
+      <div className="toast-container">{toasts.map(t => <div key={t.id} className={`toast toast-${t.type}`}>{t.message}</div>)}</div>
+    </>
+  );
 
   return (
     <div className="app">
       <div className="sidebar">
         <div className="sidebar-logo">
+          <img className="brand-img" src="/slobal-wordmark.svg" alt="Slobal"/>
           <h1>LabCTL</h1>
-          <span>Homelab Management</span>
+          <span>{currentUser.username} · {currentUser.role}</span>
         </div>
         <div className="nav-section">Management</div>
         {navItems.map(item => {
@@ -2744,6 +3117,15 @@ function App() {
             </div>
           );
         })}
+        <div className="nav-section">Theme</div>
+        <div className="theme-toggle">
+          {theme === 'dark' ? <Icons.Moon/> : <Icons.Sun/>}
+          <div className={`toggle ${theme === 'light' ? 'active' : ''}`} onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}/>
+          <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{theme}</span>
+        </div>
+        <div style={{ padding: '12px 20px' }}>
+          <button className="btn btn-sm" style={{ width: '100%', justifyContent: 'center' }} onClick={logout}><Icons.Power/> Logout</button>
+        </div>
         <div className="nav-section">Status</div>
         <div style={{ padding: '4px 20px' }}>
           {hosts.map(h => (
@@ -2757,10 +3139,14 @@ function App() {
 
       <div className="main">
         {page === 'hosts' && <HostsPage hosts={hosts} addToast={addToast}/>}
+        {page === 'monitoring' && <MonitoringPage hosts={hosts} addToast={addToast} currentUser={currentUser}/>}
         {page === 'actions' && <ActionsPage hosts={hosts} addToast={addToast}/>}
+        {page === 'scripts' && <ScriptsPage hosts={hosts} addToast={addToast}/>}
         {page === 'jobs' && <JobsPage hosts={hosts} addToast={addToast}/>}
         {page === 'schedules' && <SchedulesPage hosts={hosts} addToast={addToast}/>}
         {page === 'credentials' && <CredentialsPage hosts={hosts} addToast={addToast}/>}
+        {page === 'agents' && <AgentsPage addToast={addToast}/>}
+        {page === 'users' && <UsersPage addToast={addToast}/>}
       </div>
 
       <div className="toast-container">

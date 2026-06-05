@@ -1,0 +1,34 @@
+<?xml version="1.0"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 460 100" width="460" height="100">
+  <defs>
+    <linearGradient id="out-wm" x1="0.15" y1="0.15" x2="0.85" y2="0.9">
+      <stop offset="0%" stop-color="#0F172A"/>
+      <stop offset="35%" stop-color="#0E7490"/>
+      <stop offset="65%" stop-color="#06B6D4"/>
+      <stop offset="100%" stop-color="#67E8F9"/>
+    </linearGradient>
+    <linearGradient id="sh-wm" x1="0.2" y1="0.5" x2="0.8" y2="1">
+      <stop offset="0%" stop-color="#000" stop-opacity="0"/>
+      <stop offset="60%" stop-color="#000" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#000" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="in-wm" x1="0.85" y1="0.1" x2="0.15" y2="0.9">
+      <stop offset="0%" stop-color="#ECFEFF"/>
+      <stop offset="40%" stop-color="#06B6D4"/>
+      <stop offset="100%" stop-color="#0E7490"/>
+    </linearGradient>
+    <radialGradient id="drop-wm" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0%" stop-color="#000" stop-opacity="0.25"/>
+      <stop offset="100%" stop-color="#000" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <title>Slobal wordmark</title>
+  <text x="0" y="86" style="font-family:&quot;Big Shoulders Inline Text&quot;,&quot;Big Shoulders Display&quot;,sans-serif;font-weight:900;font-size:100px;letter-spacing:0" fill="#38BDF8">SL</text>
+  <g transform="translate(170,0) scale(0.95)">
+    <ellipse cx="50" cy="92" rx="40" ry="4" fill="url(#drop-wm)"/>
+    <circle cx="50" cy="50" r="40" fill="none" stroke="url(#out-wm)" stroke-width="14"/>
+    <circle cx="50" cy="50" r="40" fill="none" stroke="url(#sh-wm)" stroke-width="14"/>
+    <path d="M 50 24 A 26 26 0 1 1 23 53" fill="none" stroke="url(#in-wm)" stroke-width="10" stroke-linecap="butt" transform="rotate(-10 50 50)"/>
+  </g>
+  <text x="290" y="86" style="font-family:&quot;Big Shoulders Inline Text&quot;,&quot;Big Shoulders Display&quot;,sans-serif;font-weight:900;font-size:100px;letter-spacing:0" fill="#38BDF8">BAL</text>
+</svg>
