@@ -570,6 +570,20 @@
     .theme-button:hover { color: var(--accent); border-color: var(--accent); background: var(--bg-card-hover); }
     .theme-button svg { width: 16px; height: 16px; }
     .script-editor { min-height: 180px; font-family: 'Geist Mono', monospace; }
+    .script-preview {
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px;
+      margin-bottom: 14px;
+    }
+    .script-preview-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
     .copy-block { display: flex; gap: 8px; align-items: center; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; padding: 10px; }
     .copy-block code { flex: 1; word-break: break-all; color: var(--text-secondary); }
     .tooltip-wrap {
@@ -2993,6 +3007,7 @@ function ScriptsPage({ hosts, addToast }) {
   const [selected, setSelected] = useState('');
   const [hostIds, setHostIds] = useState([]);
   const [container, setContainer] = useState('');
+  const selectedScript = scripts.find(s => s.id === selected);
 
   const load = async () => { try { setScripts(await api('/api/scripts')); } catch (e) { addToast(e.message, 'error'); } };
   useEffect(() => { load(); }, []);
@@ -3039,6 +3054,21 @@ function ScriptsPage({ hosts, addToast }) {
           </select>
           <input className="input" placeholder="Container name, if needed" value={container} onChange={e => setContainer(e.target.value)}/>
         </div>
+        {selectedScript && (
+          <div className="script-preview">
+            <div className="script-preview-head">
+              <div>
+                <div className="card-title">{selectedScript.name}</div>
+                <div className="page-desc">{selectedScript.description || 'No description saved.'}</div>
+              </div>
+              <div className="btn-group">
+                <span className="badge">{selectedScript.os}</span>
+                <span className="badge">{selectedScript.target}</span>
+              </div>
+            </div>
+            <div className="output-log" style={{ maxHeight: 260 }}>{selectedScript.command}</div>
+          </div>
+        )}
         <div className="hosts-grid">
           {hosts.map(h => (
             <label key={h.id} className="host-card">
@@ -3047,7 +3077,7 @@ function ScriptsPage({ hosts, addToast }) {
             </label>
           ))}
         </div>
-        <button className="btn btn-primary" disabled={!selected || !hostIds.length} onClick={() => run(scripts.find(s => s.id === selected))}><Icons.Play/> Queue job</button>
+        <button className="btn btn-primary" disabled={!selectedScript || !hostIds.length} onClick={() => run(selectedScript)}><Icons.Play/> Queue job</button>
       </div>
     </div>
   );
