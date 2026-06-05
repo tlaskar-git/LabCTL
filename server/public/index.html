@@ -414,7 +414,7 @@
       align-items: center;
       justify-content: space-between;
       margin-bottom: 24px;
-      padding-right: 178px;
+      padding-right: 304px;
     }
     .page-title {
       font-size: 20px;
@@ -549,6 +549,10 @@
       height: 36px;
       padding: 0 14px;
     }
+    .top-manage {
+      height: 36px;
+      padding: 0 14px;
+    }
     .theme-button {
       width: 36px;
       height: 36px;
@@ -572,9 +576,9 @@
     @media (max-width: 768px) {
       .sidebar { display: none; }
       .main { margin-left: 0; padding: 16px; }
-      .page-header { padding-right: 148px; }
+      .page-header { padding-right: 288px; }
       .top-actions { top: 16px; right: 16px; }
-      .top-logout { padding: 0 10px; }
+      .top-logout, .top-manage { padding: 0 10px; }
       .hosts-grid { grid-template-columns: 1fr; }
       .actions-grid { grid-template-columns: 1fr 1fr; }
     }
@@ -724,6 +728,11 @@ function HostsPage({ hosts, onSelectHost, addToast }) {
   };
 
   useEffect(() => { loadGroups(); }, []);
+  useEffect(() => {
+    const openGroups = () => setShowManageGroups(true);
+    window.addEventListener('labctl:manage-groups', openGroups);
+    return () => window.removeEventListener('labctl:manage-groups', openGroups);
+  }, []);
 
   const addGroup = async () => {
     if (!newGroupName.trim()) return;
@@ -796,9 +805,6 @@ function HostsPage({ hosts, onSelectHost, addToast }) {
           <div className="page-title">Hosts</div>
           <div className="page-desc">{hosts.length} registered, {online} online</div>
         </div>
-        <button className="btn" onClick={() => setShowManageGroups(true)}>
-          <Icons.Settings/> Manage Groups
-        </button>
       </div>
 
       {groups.map(group => {
@@ -3163,9 +3169,6 @@ function App() {
 
       <div className="main">
         <div className="top-actions">
-          <button className="btn top-logout" onClick={logout} title="Logout" aria-label="Logout">
-            <Icons.Power/> Logout
-          </button>
           <button
             className="theme-button"
             title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
@@ -3173,6 +3176,14 @@ function App() {
             onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
           >
             {theme === 'dark' ? <Icons.Moon/> : <Icons.Sun/>}
+          </button>
+          {page === 'hosts' && (
+            <button className="btn top-manage" onClick={() => window.dispatchEvent(new Event('labctl:manage-groups'))}>
+              <Icons.Settings/> Manage Groups
+            </button>
+          )}
+          <button className="btn top-logout" onClick={logout} title="Logout" aria-label="Logout">
+            <Icons.Power/> Logout
           </button>
         </div>
         {page === 'hosts' && <HostsPage hosts={hosts} addToast={addToast}/>}
