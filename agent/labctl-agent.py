@@ -146,30 +146,40 @@ def get_system_info():
         except:
             pass
 
-        # Docker containers with details
+        # Docker containers with details, including stopped/unhealthy containers
         try:
             result = subprocess.run(
-                ['docker', 'ps', '--format', '{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}'],
+                ['docker', 'ps', '-a', '--format', '{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}'],
                 capture_output=True, text=True, timeout=10
             )
             if result.returncode == 0:
                 containers = []
                 names = []
+                running = 0
+                problem_count = 0
                 for line in result.stdout.strip().split('\n'):
                     if not line:
                         continue
                     parts = line.split('\t')
                     name = parts[0] if len(parts) > 0 else ''
+                    status = parts[2] if len(parts) > 2 else ''
+                    status_l = status.lower()
                     names.append(name)
                     containers.append({
                         'name': name,
                         'image': parts[1] if len(parts) > 1 else '',
-                        'status': parts[2] if len(parts) > 2 else '',
+                        'status': status,
                         'ports': parts[3] if len(parts) > 3 else ''
                     })
+                    if status_l.startswith('up'):
+                        running += 1
+                    if status_l and (not status_l.startswith('up') or 'unhealthy' in status_l or 'exited' in status_l):
+                        problem_count += 1
                 info['docker_containers'] = names
                 info['docker_details'] = containers
-                info['docker_running'] = len(containers)
+                info['docker_running'] = running
+                info['docker_total'] = len(containers)
+                info['docker_problem_count'] = problem_count
         except:
             pass
 
@@ -195,6 +205,21 @@ def get_system_info():
                         svc_name = parts[0].replace('.service', '')
                         svcs.append(svc_name)
                 info['services'] = svcs
+        except:
+            pass
+
+        try:
+            result = subprocess.run(
+                ['systemctl', '--failed', '--type=service', '--no-pager', '--no-legend'],
+                capture_output=True, text=True, timeout=10
+            )
+            if result.returncode == 0:
+                failed = []
+                for line in result.stdout.strip().split('\n'):
+                    parts = line.split()
+                    if parts:
+                        failed.append({'name': parts[0], 'state': ' '.join(parts[1:4])})
+                info['critical_services'] = failed
         except:
             pass
 
@@ -285,6 +310,21 @@ def get_system_info():
             )
             if result.returncode == 0:
                 info['services'] = [s.strip() for s in result.stdout.strip().split('\n') if s.strip()]
+        except:
+            pass
+
+        try:
+            result = subprocess.run(
+                ['powershell', '-Command',
+                 "Get-Service | Where-Object {$_.StartType -eq 'Automatic' -and $_.Status -ne 'Running'} | "
+                 "Select-Object Name,DisplayName,Status | ConvertTo-Json -Depth 2"],
+                capture_output=True, text=True, timeout=15, shell=False
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                data = json.loads(result.stdout)
+                if isinstance(data, dict):
+                    data = [data]
+                info['critical_services'] = data
         except:
             pass
 
