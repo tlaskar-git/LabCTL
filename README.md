@@ -109,7 +109,7 @@ Agents:
 ### Start The Server
 
 ```bash
-git clone https://github.com/<your-github-user-or-org>/LabCTL.git
+git clone https://github.com/tlaskar-git/LabCTL.git
 cd LabCTL
 docker compose -p labctl -f server/docker-compose.yml up -d --build
 ```
