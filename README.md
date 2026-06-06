@@ -1,197 +1,405 @@
 # LabCTL
 
-Central dashboard and agent system for managing homelab infrastructure. Supports Windows (Server 2025, Win 10/11) and Linux (Debian, Ubuntu, Proxmox).
+LabCTL is a lightweight homelab control plane for managing Linux, Windows, Proxmox, and Docker hosts from one browser dashboard.
 
-![Dashboard](docs/screenshot-placeholder.png)
+It ships with:
 
-## Features
+- A Node.js server with a React dashboard.
+- A Python agent that runs on each managed host.
+- Local JSON storage, so no external database is required.
+- Built-in authentication, user roles, monitoring history, saved scripts, schedules, and job tracking.
 
-- **Windows Update** - Install updates, optionally reboot after
-- **Linux Update** - apt update/upgrade/autoremove
-- **Docker Update** - Pull and recreate containers (single, compose, or all)
-- **Backup** - Run custom .sh backup scripts on any host
-- **Reboot** - Scheduled reboot with configurable delay
-- **Auto-Login** - Set Windows auto-login credentials from dashboard, chain with reboot
-- **Backup + Reboot + Autologin chain** - Full maintenance workflow in one click
-- **List Crons/Tasks** - Pull all crontabs, systemd timers, Windows scheduled tasks
-- **Service Control** - Start/stop/restart services on any host
-- **Disk Cleanup** - Temp files, package cache, Docker prune, journal vacuum
-- **Custom Commands** - Run anything on any host
-- **Scheduling** - Cron-based scheduling for any job type with enable/disable toggle
-- **Live Status** - Real-time host health (CPU, RAM, disk, uptime, Docker containers)
-- **Batch Operations** - Run any job across multiple hosts at once
+![LabCTL login screen](docs/assets/labctl-login.png)
 
-## Architecture
+![LabCTL hosts dashboard](docs/assets/labctl-dashboard.png)
 
+The screenshots above use documentation demo hosts and example IP addresses.
+
+## Default Login
+
+On a new install, LabCTL creates one admin user if no users exist:
+
+| Field | Value |
+| --- | --- |
+| Username | `LabCTLAdmin` |
+| Password | `LabCTL` |
+| Role | `admin` |
+
+Change this password immediately after first login:
+
+1. Open `http://YOUR_SERVER_IP:7700`.
+2. Sign in with the default credentials.
+3. Go to **Users**.
+4. Create your real admin user or update the default password.
+5. Keep at least one `admin` account.
+
+Readonly users can view LabCTL but cannot create jobs, edit settings, save scripts, manage users, or change host state.
+
+## What LabCTL Does
+
+LabCTL is designed for small private infrastructure environments where you want simple operations without a full enterprise management suite.
+
+Core pages:
+
+| Page | Purpose |
+| --- | --- |
+| Hosts | See registered agents, online/offline state, OS, IP, uptime, CPU, RAM, disk, Docker counts, and host groups. |
+| Monitoring | View retained health snapshots, disk/RAM trends, Docker warnings, and retention settings. |
+| Actions | Run built-in maintenance actions on one or more hosts. |
+| Scripts | Save reusable host/container commands and run them against selected hosts. |
+| Jobs | Track queued, running, completed, failed, and cancelled jobs. |
+| Schedules | Run jobs on cron-like schedules. |
+| Credentials | Store Windows auto-login credentials for maintenance workflows. |
+| Agents | Download Linux/Windows setup scripts and the Python agent. |
+| Users | Create local users with `admin` or `readonly` role. |
+
+Common actions:
+
+- Linux package update and optional reboot.
+- Windows Update and optional reboot.
+- Disk cleanup on Linux or Windows.
+- Docker compose/container updates.
+- Reboot with configurable delay.
+- Proxmox backup script execution.
+- List Linux crons/systemd timers or Windows scheduled tasks.
+- Service start/stop/restart.
+- Custom commands and saved scripts.
+
+## How It Works
+
+```text
+Browser
+  |
+  | HTTP/API on port 7700
+  v
+LabCTL Server
+  - Express API
+  - React dashboard
+  - WebSocket agent hub
+  - JSON data store
+  |
+  | WebSocket: ws://SERVER_IP:7700/ws/agent
+  v
+LabCTL Agents
+  - Python process on each host
+  - Runs as root on Linux or SYSTEM on Windows
+  - Polls host details and receives jobs
 ```
-┌─────────────────────────────────────────────┐
-│          LabCTL Server (Node.js)            │
-│   Express API + WebSocket + JSON Storage    │
-│   React Dashboard served on :7700           │
-├──────────────┬──────────────┬───────────────┤
-│  WebSocket   │   REST API   │  SSE Events   │
-└──────┬───────┴──────┬───────┴───────┬───────┘
-       │              │               │
-  ┌────┴────┐   ┌─────┴─────┐   ┌────┴─────┐
-  │ Agent   │   │  Agent    │   │  Agent   │
-  │ Linux   │   │  Linux    │   │  Windows │
-  │ (Python)│   │  (Python) │   │  (Python)│
-  └─────────┘   └───────────┘   └──────────┘
-```
 
-**Server**: Node.js API + WebSocket hub + React dashboard. Zero external database dependencies (JSON file storage).
+Agents make outbound WebSocket connections to the server. You do not need to open inbound ports on managed hosts.
 
-**Agent**: Single Python file. Runs on every managed machine. Connects outbound to the server via WebSocket. Auto-reconnects on disconnect.
+The server stores state in `data/labctl-data.json` when using the included Docker Compose file. This contains hosts, jobs, users, sessions, monitoring snapshots, saved scripts, schedules, groups, settings, and any saved credentials.
 
 ## Quick Start
 
-### 1. Deploy the Server
+### Requirements
 
-The server runs as a Docker container.
+Server:
+
+- Docker and Docker Compose.
+- TCP port `7700` reachable from your browser and agents.
+
+Agents:
+
+- Python 3.
+- `websocket-client` Python package.
+- Linux agents should run as root if you want system-level maintenance.
+- Windows agents should run as SYSTEM through the included scheduled-task installer.
+
+### Start The Server
 
 ```bash
-# Clone the repo
-git clone https://github.com/YOUR_USER/LabCTL.git
-cd LabCTL/server
-
-# Create data directory
-mkdir -p data
-
-# Build and start
-docker compose up -d --build
-
-# Verify
-docker logs labctl
+git clone https://github.com/<your-github-user-or-org>/LabCTL.git
+cd LabCTL
+docker compose -p labctl -f server/docker-compose.yml up -d --build
 ```
 
-Dashboard available at `http://YOUR_SERVER_IP:7700`
+Open:
 
-### 2. Deploy Agent on Linux
+```text
+http://YOUR_SERVER_IP:7700
+```
+
+Sign in with:
+
+```text
+Username: LabCTLAdmin
+Password: LabCTL
+```
+
+Then change the password in **Users**.
+
+### Persistent Data
+
+The included Compose file mounts:
+
+```text
+./data:/app/data
+```
+
+Do not delete `data/labctl-data.json` unless you intentionally want to reset LabCTL.
+
+## Install Agents
+
+The easiest way is from the dashboard:
+
+1. Sign in to LabCTL.
+2. Open **Agents**.
+3. Download the Linux setup script, Windows setup script, and/or agent source.
+4. Run the setup command shown on the page using your server URL.
+
+### Linux Agent
+
+From the target Linux host:
 
 ```bash
-# Copy the agent
-mkdir -p /opt/labctl/agent
-cp agent/labctl-agent.py /opt/labctl/agent/
+chmod +x setup-linux.sh
+sudo ./setup-linux.sh ws://YOUR_SERVER_IP:7700/ws/agent
+```
 
-# Install dependency
-pip3 install websocket-client --break-system-packages
+What it does:
 
-# Install as systemd service
-python3 /opt/labctl/agent/labctl-agent.py --server ws://SERVER_IP:7700/ws/agent --install-service
+- Creates `/opt/labctl/agent`.
+- Installs/copies `labctl-agent.py`.
+- Installs `websocket-client`.
+- Registers a `labctl-agent` systemd service.
+- Starts the service.
 
-# Check status
+Useful commands:
+
+```bash
 systemctl status labctl-agent
 journalctl -u labctl-agent -f
+systemctl restart labctl-agent
 ```
 
-### 3. Deploy Agent on Windows
+### Windows Agent
 
-1. Copy `agent/labctl-agent.py` to `C:\labctl\agent\` on the target machine
-2. Install Python system-wide to `C:\Python312\` (or copy an existing install there)
-3. Install the dependency:
+Run PowerShell as Administrator:
 
 ```powershell
-C:\Python312\python.exe -m pip install websocket-client
+Set-ExecutionPolicy Bypass -Scope Process -Force
+.\setup-windows.ps1 -ServerUrl "ws://YOUR_SERVER_IP:7700/ws/agent"
 ```
 
-4. Create the scheduled task (run as Administrator):
+What it does:
+
+- Creates `C:\labctl\agent`.
+- Installs/copies `labctl-agent.py`.
+- Checks Python availability.
+- Installs `websocket-client`.
+- Creates a scheduled task named `LabCTL-Agent` that runs as SYSTEM at startup.
+- Starts the task.
+
+Useful commands:
 
 ```powershell
-$action = New-ScheduledTaskAction -Execute "C:\Python312\python.exe" -Argument "C:\labctl\agent\labctl-agent.py --server ws://SERVER_IP:7700/ws/agent" -WorkingDirectory "C:\labctl\agent"; $trigger = New-ScheduledTaskTrigger -AtStartup; $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit (New-TimeSpan -Days 365); $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest; Register-ScheduledTask -TaskName "LabCTL-Agent" -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Force; Start-ScheduledTask -TaskName "LabCTL-Agent"
+Get-ScheduledTask -TaskName "LabCTL-Agent" | Select-Object State
+Start-ScheduledTask -TaskName "LabCTL-Agent"
+Stop-ScheduledTask -TaskName "LabCTL-Agent"
+Unregister-ScheduledTask -TaskName "LabCTL-Agent" -Confirm:$false
 ```
 
-**Important**: Python must be installed system-wide (e.g. `C:\Python312\`) for the SYSTEM account to access it. Per-user Python installs under `AppData` will not work with SYSTEM scheduled tasks.
+## Users And Roles
 
-## Server Configuration
+LabCTL has local users only.
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| PORT | 7700 | HTTP and WebSocket port |
+| Role | Can View | Can Change State |
+| --- | --- | --- |
+| `readonly` | Yes | No |
+| `admin` | Yes | Yes |
 
-Data is stored in `server/data/labctl-data.json` (auto-created). Mount this as a Docker volume to persist across container rebuilds.
+Admins can:
 
-## Agent Configuration
+- Create users.
+- Change roles and passwords.
+- Run jobs.
+- Save scripts.
+- Change monitoring retention.
+- Manage groups.
+- Delete hosts, jobs, schedules, credentials, and scripts.
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| --server | ws://10.20.1.1:7700/ws/agent | Server WebSocket URL |
-| --install-service | - | Install as systemd service (Linux) |
+Readonly users are blocked from non-GET API calls.
 
-The agent auto-generates a stable host ID from the hostname. Heartbeat interval is 30 seconds. Auto-reconnect delay is 5 seconds.
+## Monitoring History
 
-## API Endpoints
+Agents send heartbeat and system information. LabCTL stores snapshots for historical troubleshooting.
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | /api/hosts | List all hosts with status |
-| DELETE | /api/hosts/:id | Remove a host |
-| GET | /api/jobs | List jobs (filter: host_id, status, limit) |
-| POST | /api/jobs | Create a job |
-| POST | /api/jobs/batch | Create job across multiple hosts |
-| POST | /api/jobs/:id/cancel | Cancel a pending job |
-| GET | /api/schedules | List all schedules |
-| POST | /api/schedules | Create a schedule |
-| PUT | /api/schedules/:id | Update a schedule |
-| DELETE | /api/schedules/:id | Delete a schedule |
-| GET | /api/credentials | List credentials (passwords hidden) |
-| POST | /api/credentials | Upsert a credential |
-| DELETE | /api/credentials/:id | Delete a credential |
-| POST | /api/chains/proxmox-backup-all | Backup across multiple hosts |
-| POST | /api/chains/backup-reboot-autologin | Full maintenance chain |
-| GET | /api/events | SSE stream for live updates |
+Default retention:
 
-## Job Types
+```text
+30 days
+```
 
-| Type | OS | Description |
-|------|-----|-------------|
-| windows_update | Windows | Install updates via PSWindowsUpdate |
-| linux_update | Linux | apt update + upgrade + autoremove |
-| docker_update | Linux | Pull and recreate Docker containers |
-| backup | Linux | Run a backup shell script |
-| reboot | All | Reboot with configurable delay |
-| autologin | Windows | Set auto-login via registry |
-| disable_autologin | Windows | Remove auto-login config |
-| list_crons | All | List crontabs/systemd timers/scheduled tasks |
-| custom_command | All | Run any command |
-| service_control | All | Start/stop/restart a service |
-| disk_cleanup | All | Clean temp files, caches, Docker prune |
+Default polling interval:
 
-## Networking
+```text
+300 seconds
+```
 
-- Server listens on port 7700 (TCP)
-- Agents connect outbound to the server. No inbound ports needed on agent machines
-- For cross-subnet agents (e.g. DMZ), add a firewall rule allowing the agent IP to reach the server IP on port 7700 TCP
+Admins can change both on the **Monitoring** page.
+
+Stored monitoring data includes:
+
+- Last seen time.
+- Uptime.
+- RAM usage.
+- Disk usage by drive/mount.
+- Docker running/total counts.
+- Docker containers that are stopped, unhealthy, or otherwise not normal.
+
+Old snapshots are pruned automatically based on the retention setting.
+
+## Scripts And Jobs
+
+The **Scripts** page lets admins save reusable commands.
+
+Each saved script has:
+
+- Name.
+- Description.
+- OS target: any, Linux, or Windows.
+- Execution target: host or Docker container.
+- Command body.
+- Timeout.
+
+LabCTL includes a built-in Proxmox backup installer script. It creates:
+
+```text
+/root/proxmox-vm-backup.sh
+```
+
+That installed script:
+
+- Backs up selected Proxmox VM IDs with `vzdump`.
+- Uses snapshot mode.
+- Uses zstd compression.
+- Deletes old local backups after `RETENTION_DAYS`.
+- Optionally syncs backup data with `rclone`.
+- Uses a lock file to prevent overlapping backups.
+
+Edit the script variables before using it in production:
+
+- `VM_LIST`
+- `BACKUP_ROOT`
+- `RETENTION_DAYS`
+- `ZSTD_LEVEL`
+- `ENABLE_RCLONE`
+- `RCLONE_REMOTE`
+
+## Schedules
+
+Schedules let you run recurring jobs with a cron expression.
+
+Examples:
+
+```text
+0 2 * * *      every day at 02:00
+0 3 * * 0      every Sunday at 03:00
+*/30 * * * *   every 30 minutes
+```
+
+Scheduled jobs are created by the server and dispatched to the connected agent when due.
+
+## Credentials
+
+The **Credentials** page is mainly for Windows auto-login maintenance workflows.
+
+Important:
+
+- LabCTL login passwords are hashed.
+- Saved host credentials are stored in the local JSON data file so the agent can use them.
+- Treat `data/labctl-data.json` as sensitive.
 
 ## Security Notes
 
-- Credentials are stored in plaintext in the JSON file. This is a homelab tool.
-- The agent runs as root (Linux) or SYSTEM (Windows) to execute system commands
-- Restrict dashboard access to your management network
-- For external access, put behind Tailscale, WireGuard, or a reverse proxy with auth
+LabCTL is intended for private lab and management networks.
+
+Before exposing it broadly:
+
+- Change the default admin password.
+- Create named accounts for each user.
+- Use readonly accounts where possible.
+- Restrict access with a VPN, firewall, reverse proxy, or private network.
+- Prefer HTTPS if publishing through a reverse proxy.
+- Back up `data/labctl-data.json`.
+- Protect the server host, because agents can run privileged commands.
+
+Do not expose a default install directly to the public internet.
+
+## Resetting Login
+
+If you lock yourself out and still have server filesystem access:
+
+1. Stop the container.
+2. Back up `data/labctl-data.json`.
+3. Edit or remove users from the JSON file.
+4. Start LabCTL again.
+
+If the `users` object is empty, LabCTL recreates the default admin:
+
+```text
+LabCTLAdmin / LabCTL
+```
+
+## API Overview
+
+All `/api/*` routes require authentication except login/session bootstrap.
+
+Common endpoints:
+
+| Method | Path | Description |
+| --- | --- | --- |
+| POST | `/api/auth/login` | Sign in. |
+| POST | `/api/auth/logout` | Sign out. |
+| GET | `/api/hosts` | List hosts. |
+| DELETE | `/api/hosts/:id` | Delete a host. |
+| GET | `/api/health` | Current health summary. |
+| GET | `/api/metrics` | Historical metric snapshots. |
+| GET | `/api/jobs` | List jobs. |
+| POST | `/api/jobs` | Create a job. |
+| POST | `/api/jobs/batch` | Create jobs across many hosts. |
+| GET | `/api/scripts` | List saved scripts. |
+| POST | `/api/scripts` | Create a saved script. |
+| POST | `/api/scripts/:id/run` | Run a saved script. |
+| GET | `/api/schedules` | List schedules. |
+| POST | `/api/schedules` | Create a schedule. |
+| GET | `/api/users` | List users. |
+| POST | `/api/users` | Create a user. |
+| GET | `/api/agents/info` | Agent download metadata and WebSocket URL. |
 
 ## Uninstall
 
-**Linux agent:**
+### Linux Agent
+
 ```bash
 systemctl stop labctl-agent
 systemctl disable labctl-agent
-rm /etc/systemd/system/labctl-agent.service
+rm -f /etc/systemd/system/labctl-agent.service
 systemctl daemon-reload
 rm -rf /opt/labctl
 ```
 
-**Windows agent:**
+### Windows Agent
+
 ```powershell
+Stop-ScheduledTask -TaskName "LabCTL-Agent" -ErrorAction SilentlyContinue
 Unregister-ScheduledTask -TaskName "LabCTL-Agent" -Confirm:$false
 Remove-Item -Recurse -Force C:\labctl
 ```
 
-**Server:**
+### Server
+
 ```bash
-docker compose down
-rm -rf /path/to/labctl
+docker compose -p labctl -f server/docker-compose.yml down
+```
+
+Remove the data directory only if you do not need the saved state:
+
+```bash
+rm -rf data
 ```
 
 ## License
 
-MIT
+MIT. See [LICENSE](LICENSE).

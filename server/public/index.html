@@ -2878,7 +2878,7 @@ function LoginPage({ onLogin, addToast }) {
     <div className="login-shell">
       <form className="card login-panel" onSubmit={submit}>
         <div className="login-brand">
-          <img src="/slobal-wordmark.svg" alt="LabCTL"/>
+          <img src="/labctl-logo.svg" alt="LabCTL"/>
         </div>
         <div className="form-group" style={{ marginBottom: 12 }}>
           <label className="form-label">User</label>
@@ -3079,7 +3079,7 @@ function AgentsPage({ addToast }) {
   const download = async (file) => {
     try { await apiDownload(file.path, file.path.split('/').pop()); } catch (e) { addToast(e.message, 'error'); }
   };
-  const ws = info?.server_url || 'ws://10.20.1.20:7700/ws/agent';
+  const ws = info?.server_url || 'ws://YOUR_SERVER_IP:7700/ws/agent';
   return (
     <div>
       <div className="page-header"><div><div className="page-title">Agent Downloads</div><div className="page-desc">Install agents on Linux and Windows hosts.</div></div></div>
@@ -3204,7 +3204,7 @@ function App() {
     <div className="app">
       <div className="sidebar">
         <div className="sidebar-logo">
-          <img className="brand-img" src="/slobal-wordmark.svg" alt="LabCTL"/>
+          <img className="brand-img" src="/labctl-logo.svg" alt="LabCTL"/>
           <span>{currentUser.username} · {currentUser.role}</span>
         </div>
         <div className="nav-section">Management</div>
