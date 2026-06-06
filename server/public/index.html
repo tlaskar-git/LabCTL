@@ -660,17 +660,29 @@ async function api(path, opts = {}) {
 async function apiDownload(path, filename) {
   const token = localStorage.getItem('labctl_token');
   const res = await fetch(`${API}${path}`, {
+    method: 'HEAD',
     headers: token ? { 'Authorization': `Bearer ${token}` } : {},
     credentials: 'same-origin'
   });
   if (!res.ok) throw new Error('Download failed');
-  const blob = await res.blob();
+  const a = document.createElement('a');
+  a.href = `${API}${path}`;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+function downloadBlob(content, filename, type = 'text/plain') {
+  const blob = new Blob([content], { type });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
   a.download = filename;
+  document.body.appendChild(a);
   a.click();
-  URL.revokeObjectURL(url);
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 30000);
 }
 
 // ── Icons (inline SVGs) ──────────────────────────────────
@@ -1632,11 +1644,7 @@ function ActionsPage({ hosts, addToast }) {
                         {(job.result || job.error) && (
                           <button className="btn btn-sm" style={{ padding: '1px 6px', fontSize: 10 }}
                             onClick={() => {
-                              const blob = new Blob([job.result || job.error], { type: 'text/plain' });
-                              const url = URL.createObjectURL(blob);
-                              const a = document.createElement('a');
-                              a.href = url; a.download = `${job.hostname}-${job.type}-${job.id.slice(0,8)}.log`;
-                              a.click(); URL.revokeObjectURL(url);
+                              downloadBlob(job.result || job.error, `${job.hostname}-${job.type}-${job.id.slice(0,8)}.log`);
                             }}>Download Log</button>
                         )}
                       </div>
@@ -1782,11 +1790,7 @@ function ActionsPage({ hosts, addToast }) {
                     {(job.result || job.error) && (
                       <button className="btn btn-sm" style={{ padding: '2px 8px' }}
                         onClick={() => {
-                          const blob = new Blob([job.result || job.error], { type: 'text/plain' });
-                          const url = URL.createObjectURL(blob);
-                          const a = document.createElement('a');
-                          a.href = url; a.download = `${job.hostname}-${job.type}-${job.id.slice(0,8)}.log`;
-                          a.click(); URL.revokeObjectURL(url);
+                          downloadBlob(job.result || job.error, `${job.hostname}-${job.type}-${job.id.slice(0,8)}.log`);
                         }}>Download</button>
                     )}
                   </div>
@@ -1913,11 +1917,7 @@ function JobsPage({ hosts, addToast }) {
               )}
               {(viewJob.result || viewJob.error) && (
                 <button className="btn btn-sm" onClick={() => {
-                  const blob = new Blob([viewJob.result || viewJob.error], { type: 'text/plain' });
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement('a');
-                  a.href = url; a.download = `${viewJob.hostname}-${viewJob.type}-${viewJob.id.slice(0,8)}.log`;
-                  a.click(); URL.revokeObjectURL(url);
+                  downloadBlob(viewJob.result || viewJob.error, `${viewJob.hostname}-${viewJob.type}-${viewJob.id.slice(0,8)}.log`);
                 }}>
                   <Icons.Download/> Download Log
                 </button>
@@ -2387,10 +2387,7 @@ function CronTaskList({ tasks, isWindows, onRefresh, onAction, onRunNow, hostnam
           <button className="btn btn-sm" onClick={onRefresh}><Icons.RefreshCw/> Refresh</button>
           <button className="btn btn-sm" onClick={() => {
             const text = isWindows ? JSON.stringify(tasks, null, 2) : tasks.map(t => t.raw).join('\n');
-            const blob = new Blob([text], { type: 'text/plain' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a'); a.href = url;
-            a.download = `${hostname}-crons.txt`; a.click(); URL.revokeObjectURL(url);
+            downloadBlob(text, `${hostname}-crons.txt`);
           }}><Icons.Download/> Download</button>
         </div>
       </div>
@@ -2791,10 +2788,7 @@ function HostDetailModal({ host, onClose, addToast }) {
                     <div className="btn-group">
                       <button className="btn btn-sm" onClick={() => runJob('list_crons')}><Icons.RefreshCw/> Refresh</button>
                       <button className="btn btn-sm" onClick={() => {
-                        const blob = new Blob([cronJob.result], { type: 'text/plain' });
-                        const url = URL.createObjectURL(blob);
-                        const a = document.createElement('a'); a.href = url;
-                        a.download = `${host.hostname}-crons.txt`; a.click(); URL.revokeObjectURL(url);
+                        downloadBlob(cronJob.result, `${host.hostname}-crons.txt`);
                       }}><Icons.Download/> Download</button>
                     </div>
                   </div>
