@@ -105,7 +105,7 @@
       color: var(--accent);
       letter-spacing: 0;
     }
-    .brand-img { width: 128px; height: auto; display: block; margin-bottom: 8px; }
+    .brand-img { width: 154px; height: auto; display: block; margin-bottom: 10px; }
     .sidebar-logo span {
       font-size: 11px;
       color: var(--text-dim);
@@ -532,7 +532,7 @@
     }
     .login-panel { width: min(420px, 100%); }
     .login-brand { display: flex; align-items: center; gap: 14px; margin-bottom: 20px; }
-    .login-brand img { width: 148px; height: auto; }
+    .login-brand img { width: 188px; height: auto; }
     .metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; margin-bottom: 16px; }
     .metric-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 14px; box-shadow: var(--card-shadow); }
     .metric-value { font-family: 'Geist Mono', monospace; font-size: 22px; font-weight: 700; color: var(--text-primary); }
@@ -2878,9 +2878,8 @@ function LoginPage({ onLogin, addToast }) {
     <div className="login-shell">
       <form className="card login-panel" onSubmit={submit}>
         <div className="login-brand">
-          <img src="/slobal-wordmark.svg" alt="Slobal"/>
+          <img src="/slobal-wordmark.svg" alt="LabCTL"/>
           <div>
-            <div className="page-title">LabCTL</div>
             <div className="page-desc">Homelab control plane</div>
           </div>
         </div>
@@ -3208,8 +3207,7 @@ function App() {
     <div className="app">
       <div className="sidebar">
         <div className="sidebar-logo">
-          <img className="brand-img" src="/slobal-wordmark.svg" alt="Slobal"/>
-          <h1>LabCTL</h1>
+          <img className="brand-img" src="/slobal-wordmark.svg" alt="LabCTL"/>
           <span>{currentUser.username} · {currentUser.role}</span>
         </div>
         <div className="nav-section">Management</div>
