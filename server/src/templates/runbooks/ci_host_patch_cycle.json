@@ -1,0 +1,75 @@
+{
+  "id": "ci_host_patch_cycle",
+  "name": "CI host patch cycle",
+  "description": "Drains and stops the GitHub runner, applies OS updates, cleans up, reboots when the updates need it, waits for the agent and the runner, confirms the runner is online in GitHub and reports. Works on Linux, macOS and Windows hosts.",
+  "params": [
+    { "name": "RUNNER_NAME", "type": "string", "default": "", "label": "Runner name as shown in GitHub" },
+    { "name": "RUNNER_SCOPE", "type": "string", "default": "", "label": "Repository (owner/repo) or organisation the runner belongs to" }
+  ],
+  "steps": [
+    {
+      "id": "drain_stop",
+      "kind": "script",
+      "name": "Drain and stop the runner",
+      "template": { "linux": "runner_restart", "darwin": "runner_restart", "windows": "runner_restart_win" },
+      "params": { "ACTION": "stop" },
+      "drain": true
+    },
+    {
+      "id": "os_updates",
+      "kind": "script",
+      "name": "Install OS updates",
+      "template": { "linux": "vps_apt_upgrade", "darwin": "mac_update", "windows": "win_update" }
+    },
+    {
+      "id": "runner_cleanup",
+      "kind": "script",
+      "name": "Clean the runner folders",
+      "template": { "linux": "runner_cleanup", "darwin": "runner_cleanup", "windows": "runner_cleanup_win" }
+    },
+    {
+      "id": "disk_cleanup",
+      "kind": "script",
+      "name": "Clean the disk",
+      "template": { "linux": "docker_cleanup", "darwin": "mac_disk_cleanup" },
+      "optional": true
+    },
+    {
+      "id": "reboot",
+      "kind": "script",
+      "name": "Reboot",
+      "template": { "linux": "vps_scheduled_reboot", "darwin": "mac_reboot", "windows": "win_reboot" },
+      "params": { "DELAY_MIN": 1 },
+      "when": { "reboot_required": true }
+    },
+    {
+      "id": "wait_agent",
+      "kind": "wait_agent",
+      "name": "Wait for the agent to return",
+      "after": "reboot",
+      "when": { "reboot_required": true },
+      "timeout_s": 900
+    },
+    {
+      "id": "start_runner",
+      "kind": "script",
+      "name": "Start the runner",
+      "template": { "linux": "runner_restart", "darwin": "runner_restart", "windows": "runner_restart_win" },
+      "params": { "ACTION": "start" }
+    },
+    {
+      "id": "runner_online",
+      "kind": "github_runner_online",
+      "name": "Confirm the runner is online in GitHub",
+      "runner": "{{RUNNER_NAME}}",
+      "scope": "{{RUNNER_SCOPE}}",
+      "timeout_s": 180
+    },
+    {
+      "id": "report",
+      "kind": "script",
+      "name": "Report runner health",
+      "template": { "linux": "runner_health_check", "darwin": "runner_health_check", "windows": "runner_health_check_win" }
+    }
+  ]
+}
