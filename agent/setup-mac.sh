@@ -2,12 +2,17 @@
 # LabCTL agent setup for macOS. Run as root:
 #   sudo ./setup-mac.sh --server https://labctl.example.test --token <enrolment token>
 #   sudo SERVER_URL=https://labctl.example.test TOKEN=<token> ./setup-mac.sh
+#   curl -fsSL "https://labctl.example.test/install/mac.sh?token=<token>" | sudo bash
 #
 # Installs to /usr/local/labctl/agent with its own venv (websocket-client is never
 # installed system wide), writes the launchd daemons com.labctl.agent and
 # com.labctl.agent.watchdog, and rotates /var/log/labctl-agent.log with newsyslog.
-# Uses labctl-agent.py from this folder when present, else downloads it from the server.
+# Uses labctl-agent.py from this folder when present, else downloads it from the server with the token.
+# The server renders DEFAULT_SERVER and DEFAULT_TOKEN when it serves this script.
 set -euo pipefail
+
+DEFAULT_SERVER=''
+DEFAULT_TOKEN=''
 
 INSTALL_DIR="/usr/local/labctl/agent"
 LABEL="com.labctl.agent"
@@ -16,8 +21,8 @@ PLIST="/Library/LaunchDaemons/${LABEL}.plist"
 WATCHDOG_PLIST="/Library/LaunchDaemons/${WATCHDOG_LABEL}.plist"
 LOG_FILE="/var/log/labctl-agent.log"
 NEWSYSLOG_CONF="/etc/newsyslog.d/labctl.conf"
-SERVER_URL="${SERVER_URL:-}"
-TOKEN="${TOKEN:-}"
+SERVER_URL="${SERVER_URL:-$DEFAULT_SERVER}"
+TOKEN="${TOKEN:-$DEFAULT_TOKEN}"
 PYTHON=""
 
 usage() {
@@ -26,6 +31,8 @@ usage() {
   exit 2
 }
 
+main() {
+exec < /dev/null # the script may arrive on stdin (curl | bash): keep commands from eating it
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --server)
@@ -59,7 +66,11 @@ done
 [ "$(uname -s)" = "Darwin" ] || { echo "This script is for macOS." >&2; exit 1; }
 [ "$(id -u)" -eq 0 ] || { echo "Run as root (sudo)." >&2; exit 1; }
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+# Directory of this script when it is a real file (empty when piped into bash).
+SCRIPT_DIR=""
+if [ -n "${BASH_SOURCE[0]:-}" ] && [ -f "${BASH_SOURCE[0]}" ]; then
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+fi
 # https://host, wss://host/ws/agent and ws://host:port all map to the server's http(s) base URL.
 HTTP_BASE="$(printf '%s' "$SERVER_URL" | sed -e 's#^wss://#https://#' -e 's#^ws://#http://#' -e 's#/ws/agent.*$##' -e 's#/*$##')"
 case "$HTTP_BASE" in
@@ -123,17 +134,18 @@ chown root:wheel "$INSTALL_DIR"
 chmod 755 "$INSTALL_DIR"
 
 NEW_AGENT="${INSTALL_DIR}/labctl-agent.py.new"
-if [ -f "${SCRIPT_DIR}/labctl-agent.py" ]; then
+if [ -n "$SCRIPT_DIR" ] && [ -f "${SCRIPT_DIR}/labctl-agent.py" ]; then
   cp "${SCRIPT_DIR}/labctl-agent.py" "$NEW_AGENT"
 else
   echo "Downloading the agent from the server"
-  curl -fsSL --retry 3 -o "$NEW_AGENT" "${HTTP_BASE}/install/agent.py?token=${TOKEN}"
+  # The token goes through stdin, never the command line.
+  printf 'header = "Authorization: Bearer %s"\n' "$TOKEN" | curl -fsSL --retry 3 -K - -o "$NEW_AGENT" "${HTTP_BASE}/install/agent.py"
 fi
 
 "$PYTHON" -m venv --clear "${INSTALL_DIR}/venv"
 VENV_PY="${INSTALL_DIR}/venv/bin/python"
 "$VENV_PY" -m pip install --quiet --disable-pip-version-check --upgrade pip
-if [ -f "${SCRIPT_DIR}/requirements.txt" ]; then
+if [ -n "$SCRIPT_DIR" ] && [ -f "${SCRIPT_DIR}/requirements.txt" ]; then
   "$VENV_PY" -m pip install --quiet --disable-pip-version-check -r "${SCRIPT_DIR}/requirements.txt"
 else
   "$VENV_PY" -m pip install --quiet --disable-pip-version-check 'websocket-client>=1.6,<2'
@@ -244,3 +256,6 @@ echo ""
 echo "=== LabCTL agent installed ==="
 echo "Status: sudo launchctl print system/${LABEL}"
 echo "Logs:   tail -f ${LOG_FILE}"
+}
+
+main "$@"
