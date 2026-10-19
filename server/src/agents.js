@@ -3,6 +3,7 @@
 const { WebSocketServer } = require('ws');
 const { randomUUID } = require('crypto');
 const { parseJson } = require('./db');
+const { createMetrics } = require('./metrics');
 
 function hostOut(row, online = false) {
   if (!row) return null;
@@ -46,6 +47,7 @@ function tokenFromRequest(req) {
 
 function createAgents(ctx) {
   const { db } = ctx;
+  const metrics = ctx.metrics = createMetrics(ctx); // chart storage, see metrics.js
   const sockets = new Map(); // host_id -> ws
   const wss = new WebSocketServer({ noServer: true, maxPayload: 16 * 1024 * 1024 });
   const now = () => new Date().toISOString();
@@ -115,10 +117,12 @@ function createAgents(ctx) {
         if (msg.agent_version) fields.agent_version = msg.agent_version;
         touch(hostId, fields);
         recordMetrics(hostId);
+        metrics.ingest(hostId, msg);
         break;
       }
       case 'inventory':
         touch(hostId, { inventory: JSON.stringify(msg.data || {}), inventory_at: now() });
+        metrics.ingest(hostId, msg);
         break;
       case 'job_started':
         if (ownJob(hostId, msg.job_id)) ctx.jobs.markRunning(msg.job_id);

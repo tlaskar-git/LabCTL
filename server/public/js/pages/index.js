@@ -16,8 +16,8 @@ export const groups = ['Operate', 'Monitor', 'Automate', 'Admin'];
 export const pages = [
   { id: 'login', title: 'Sign in', icon: 'Key', roles: ALL, route: false, nav: false, load: () => import('./login.js') },
 
+  { id: 'fleet', title: 'Fleet overview', icon: 'HardDrive', group: 'Operate', roles: ALL, load: () => import('./fleet.js') },
   { id: 'hosts', title: 'Hosts', icon: 'Server', group: 'Operate', roles: ALL, load: () => import('./hosts.js') },
-  { id: 'fleet', title: 'Fleet', icon: 'HardDrive', group: 'Operate', roles: ALL, load: () => import('./fleet.js') },
   { id: 'host-detail', title: 'Host', icon: 'Server', roles: ALL, route: '/host/:id', nav: false, parent: 'hosts', load: () => import('./host-detail.js') },
   { id: 'add-host', title: 'Add host', icon: 'Server', roles: OPS, route: '/add-host', nav: false, modal: true, load: () => import('./add-host.js') },
   { id: 'actions', title: 'Actions', icon: 'Play', group: 'Operate', roles: ALL, load: () => import('./actions.js') },

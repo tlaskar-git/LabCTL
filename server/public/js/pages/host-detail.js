@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'preact/hooks';
-import { html } from '../ui.js';
+import { html, StatusBadge } from '../ui.js';
 import { navigate } from '../router.js';
 
 // Route: #/host/:id?tab=<tab id>. Each tab is its own module in host-tabs/ and loads on first use.
@@ -36,13 +36,13 @@ export default function HostDetail({ hosts, params, query, addToast }) {
       <div class="page-header">
         <div>
           <div class="page-title">${host ? host.hostname : 'Host'}</div>
-          <div class="page-desc">${params.id}</div>
+          <div class="page-desc">${host ? html`<${StatusBadge} status=${host.online ? 'online' : 'offline'}/> ${[host.os, host.os_version, host.kind].filter(Boolean).join(' / ')}` : ''} <span class="mono">${params.id}</span></div>
         </div>
       </div>
       <div class="tabs">
         ${tabs.map(t => html`<div key=${t.id} class=${`tab ${t.id === tab.id ? 'active' : ''}`} onClick=${() => go(t.id)}>${t.title}</div>`)}
       </div>
       ${error && html`<div class="card">Failed to load tab: ${error}</div>`}
-      ${Tab && html`<${Tab} host=${host} hostId=${params.id} addToast=${addToast}/>`}
+      ${Tab && html`<${Tab} key=${params.id} host=${host} hostId=${params.id} addToast=${addToast}/>`}
     </div>`;
 }
