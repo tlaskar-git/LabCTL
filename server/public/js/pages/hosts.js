@@ -2,24 +2,50 @@ import { useState, useEffect } from 'preact/hooks';
 import { api } from '../api.js';
 import { html, Icons, StatusBadge, Modal } from '../ui.js';
 import { HostDetailModal } from '../components/host-detail-modal.js';
+import { Chip, Chips } from '../components/host-chips.js';
+import { HostFilters, EMPTY_FILTERS } from '../components/host-filters.js';
+import { RemoveDialog } from '../components/host-remove-dialog.js';
+import { HostSettings } from '../components/host-settings.js';
+import { AddSshHost } from '../components/host-add-ssh.js';
 
-// ── Hosts Overview ────────────────────────────────────────
-export default function HostsPage({ hosts, onSelectHost, addToast }) {
+const seen = iso => (iso ? iso.slice(0, 19).replace('T', ' ') : '—');
+const GROUP_COLORS = ['#3b82f6','#22c55e','#f97316','#a855f7','#ef4444','#eab308','#06b6d4','#ec4899'];
+
+// ── Hosts: search, filters, bulk actions, remove ──────────
+export default function HostsPage({ hosts, addToast, currentUser }) {
+  const isAdmin = currentUser?.role === 'admin';
+  const canEdit = currentUser?.role !== 'viewer';
   const online = hosts.filter(h => h.online || h.status === 'online').length;
+  const [rows, setRows] = useState([]);
+  const [filters, setFilters] = useState(EMPTY_FILTERS);
+  const [selected, setSelected] = useState(new Set());
   const [groups, setGroups] = useState([]);
+  const [tags, setTags] = useState([]);
+  const [removing, setRemoving] = useState(null);
+  const [settingsHost, setSettingsHost] = useState(null);
+  const [addingSsh, setAddingSsh] = useState(false);
+  const [selectedHost, setSelectedHost] = useState(null);
   const [showManageGroups, setShowManageGroups] = useState(false);
   const [newGroupName, setNewGroupName] = useState('');
   const [newGroupColor, setNewGroupColor] = useState('#3b82f6');
-  const [assigningHost, setAssigningHost] = useState(null);
-  const [selectedHost, setSelectedHost] = useState(null);
+  const [bulkTag, setBulkTag] = useState('');
+  const [bulkGroup, setBulkGroup] = useState('');
 
-  const GROUP_COLORS = ['#3b82f6','#22c55e','#f97316','#a855f7','#ef4444','#eab308','#06b6d4','#ec4899'];
-
-  const loadGroups = async () => {
-    try { setGroups(await api('/api/groups')); } catch(e) { console.error(e); }
+  const loadRows = async () => {
+    const query = new URLSearchParams(Object.entries(filters).filter(([, v]) => v));
+    try { setRows(await api(`/api/hosts?${query}`)); } catch (e) { console.error(e); }
   };
+  const loadMeta = async () => {
+    try {
+      const [g, t] = await Promise.all([api('/api/groups'), api('/api/tags')]);
+      setGroups(g);
+      setTags(t);
+    } catch (e) { console.error(e); }
+  };
+  const refresh = () => { loadRows(); loadMeta(); };
 
-  useEffect(() => { loadGroups(); }, []);
+  useEffect(() => { loadRows(); const t = setInterval(loadRows, 3000); return () => clearInterval(t); }, [JSON.stringify(filters)]);
+  useEffect(() => { loadMeta(); }, []);
   useEffect(() => {
     const openGroups = () => setShowManageGroups(true);
     window.addEventListener('labctl:manage-groups', openGroups);
@@ -31,64 +57,60 @@ export default function HostsPage({ hosts, onSelectHost, addToast }) {
     await api('/api/groups', { method: 'POST', body: { name: newGroupName, color: newGroupColor }});
     setNewGroupName('');
     addToast('Group created');
-    loadGroups();
+    refresh();
   };
-
   const deleteGroup = async (id) => {
     await api(`/api/groups/${id}`, { method: 'DELETE' });
     addToast('Group deleted');
-    loadGroups();
+    refresh();
+  };
+  const deleteTag = async (id) => {
+    await api(`/api/tags/${id}`, { method: 'DELETE' });
+    addToast('Tag deleted');
+    refresh();
   };
 
-  const assignHost = async (hostId, groupId) => {
-    await api(`/api/hosts/${hostId}/group`, { method: 'PUT', body: { group_id: groupId }});
-    setAssigningHost(null);
-    addToast('Host assigned');
+  const picked = rows.filter(h => selected.has(h.id));
+  const allOn = rows.length > 0 && picked.length === rows.length;
+  const toggle = id => setSelected(s => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const toggleAll = () => setSelected(allOn ? new Set() : new Set(rows.map(h => h.id)));
+
+  const bulkPatch = async (body, done) => {
+    try {
+      await Promise.all(picked.map(h => api(`/api/hosts/${encodeURIComponent(h.id)}`, { method: 'PATCH', body })));
+      addToast(done);
+      setBulkTag('');
+      setBulkGroup('');
+      refresh();
+    } catch (e) { addToast(e.message, 'error'); }
   };
 
-  // Group hosts
-  const grouped = {};
-  const ungrouped = [];
-  hosts.forEach(host => {
-    const gid = host.group_id;
-    if (gid && groups.find(g => g.id === gid)) {
-      if (!grouped[gid]) grouped[gid] = [];
-      grouped[gid].push(host);
-    } else {
-      ungrouped.push(host);
-    }
-  });
+  const osOptions = [...new Set(hosts.map(h => h.os).filter(Boolean))].sort();
+  const agentCell = h => (h.kind === 'ssh'
+    ? html`<span class="page-desc">agentless</span>`
+    : html`<span class="mono">${h.agent_version || '—'}</span>${h.agent_outdated && html` <span class="badge badge-pending" title=${`Latest known: ${h.latest_agent_version}`}>outdated</span>`}`);
 
-  const renderHostCard = (host) => {
-    const info = host.system_info || {};
-    const isOnline = host.online || host.status === 'online';
-    return (
-      html`<div key=${host.id} class="host-card" style=${{ position: 'relative' }}
-        onClick=${() => setSelectedHost(host)}>
-        <div style=${{ position: 'absolute', top: 8, right: 8 }}>
-          <button class="btn btn-sm" style=${{ padding: '2px 6px', fontSize: 10 }}
-            onClick=${(e) => { e.stopPropagation(); setAssigningHost(host); }}
-            title="Assign to group">
-            <${Icons.Settings}/>
-          </button>
-        </div>
-        <div class="host-name">
-          <${StatusBadge} status=${isOnline ? 'online' : 'offline'}/>
-          ${host.hostname}
-        </div>
-        <div class="host-os">${host.os} · ${host.ip || info.ip || '\u2014'}</div>
-        <div class="host-stats">
-          <div class="host-stat">CPU <strong>${info.cpus || '?'} cores</strong></div>
-          <div class="host-stat">RAM <strong>${info.ram_mb ? `${Math.round(info.ram_mb/1024)}GB` : '?'}</strong></div>
-          <div class="host-stat">Disk <strong>${info.disk_free_gb != null ? `${info.disk_free_gb}GB free` : '?'}</strong></div>
-          <div class="host-stat">Up <strong>${info.uptime_hours ? `${info.uptime_hours}h` : '?'}</strong></div>
-          ${info.docker_running != null && (
-            html`<div class="host-stat">Docker <strong>${info.docker_running} running</strong></div>`
-          )}
-        </div>
-      </div>`
-    );
-  };
+  const renderRow = (h) => html`<tr key=${h.id} style=${{ cursor: 'pointer' }} onClick=${() => setSelectedHost(h)}>
+    <td onClick=${e => e.stopPropagation()}>
+      <input type="checkbox" checked=${selected.has(h.id)} onChange=${() => toggle(h.id)} aria-label=${`Select ${h.hostname || h.id}`}/>
+    </td>
+    <td><${StatusBadge} status=${h.online || h.status === 'online' ? 'online' : 'offline'}/></td>
+    <td>
+      <strong>${h.hostname || h.id}</strong>
+      ${(h.provider || h.region || h.plan) && html`<div class="page-desc">${[h.provider, h.region, h.plan].filter(Boolean).join(' / ')}</div>`}
+    </td>
+    <td>${h.kind}</td>
+    <td>${h.os || '—'}</td>
+    <td class="mono">${h.ip || h.system_info?.ip || '—'}</td>
+    <td>${agentCell(h)}</td>
+    <td><${Chips} items=${h.tags}/></td>
+    <td><${Chips} items=${h.groups}/></td>
+    <td class="mono">${seen(h.last_seen)}</td>
+    <td onClick=${e => e.stopPropagation()} style=${{ whiteSpace: 'nowrap' }}>
+      ${canEdit && html`<button class="btn btn-sm" title="Host settings" aria-label="Host settings" onClick=${() => setSettingsHost(h)}><${Icons.Settings}/></button>`}
+      ${isAdmin && html` <button class="btn btn-sm btn-danger" title="Remove host" aria-label="Remove host" onClick=${() => setRemoving([h])}><${Icons.Trash}/> Remove</button>`}
+    </td>
+  </tr>`;
 
   return (
     html`<div>
@@ -97,52 +119,42 @@ export default function HostsPage({ hosts, onSelectHost, addToast }) {
           <div class="page-title">Hosts</div>
           <div class="page-desc">${hosts.length} registered, ${online} online</div>
         </div>
+        <div class="btn-group">
+          ${isAdmin && html`<a class="btn" style=${{ textDecoration: 'none' }} href="#/blocklist"><${Icons.Stop}/> Blocked hosts</a>`}
+          ${canEdit && html`<button class="btn btn-primary" onClick=${() => setAddingSsh(true)}><${Icons.Server}/> Add SSH host</button>`}
+        </div>
       </div>
 
-      ${groups.map(group => {
-        const groupHosts = grouped[group.id] || [];
-        if (groupHosts.length === 0) return null;
-        return (
-          html`<div key=${group.id} style=${{ marginBottom: 24 }}>
-            <div style=${{
-              display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12,
-              paddingBottom: 8, borderBottom: `2px solid ${group.color}`
-            }}>
-              <span style=${{
-                width: 12, height: 12, borderRadius: 3, background: group.color, flexShrink: 0
-              }}/>
-              <span style=${{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>${group.name}</span>
-              <span style=${{ fontSize: 12, color: 'var(--text-dim)' }}>${groupHosts.length} host${groupHosts.length !== 1 ? 's' : ''}</span>
-            </div>
-            <div class="hosts-grid">
-              ${groupHosts.map(renderHostCard)}
-            </div>
-          </div>`
-        );
-      })}
+      <${HostFilters} filters=${filters} onChange=${setFilters} options=${{ os: osOptions, groups, tags }}/>
 
-      ${ungrouped.length > 0 && (
-        html`<div style=${{ marginBottom: 24 }}>
-          ${groups.length > 0 && (
-            html`<div style=${{
-              display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12,
-              paddingBottom: 8, borderBottom: '2px solid var(--border)'
-            }}>
-              <span style=${{ fontSize: 14, fontWeight: 700, color: 'var(--text-dim)' }}>Ungrouped</span>
-              <span style=${{ fontSize: 12, color: 'var(--text-dim)' }}>${ungrouped.length} host${ungrouped.length !== 1 ? 's' : ''}</span>
-            </div>`
-          )}
-          <div class="hosts-grid">
-            ${ungrouped.map(renderHostCard)}
-          </div>
-        </div>`
-      )}
+      ${picked.length > 0 && html`<div class="card" style=${{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', padding: '10px 14px' }}>
+        <strong>${picked.length} selected</strong>
+        ${canEdit && html`
+          <input class="input" style=${{ maxWidth: 160 }} placeholder="Tag name" aria-label="Tag to add" value=${bulkTag} onInput=${e => setBulkTag(e.target.value)}/>
+          <button class="btn btn-sm" disabled=${!bulkTag.trim()} onClick=${() => bulkPatch({ add_tags: [bulkTag.trim()] }, 'Tag added')}>Add tag</button>
+          <select class="select" style=${{ maxWidth: 160 }} aria-label="Group to add" value=${bulkGroup} onChange=${e => setBulkGroup(e.target.value)}>
+            <option value="">Choose group</option>
+            ${groups.map(g => html`<option key=${g.id} value=${g.id}>${g.name}</option>`)}
+          </select>
+          <button class="btn btn-sm" disabled=${!bulkGroup} onClick=${() => bulkPatch({ add_groups: [bulkGroup] }, 'Added to group')}>Add to group</button>`}
+        ${isAdmin && html`<button class="btn btn-sm btn-danger" onClick=${() => setRemoving(picked)}><${Icons.Trash}/> Remove ${picked.length}</button>`}
+        <button class="btn btn-sm" onClick=${() => setSelected(new Set())}>Clear selection</button>
+      </div>`}
 
-      ${hosts.length === 0 && (
-        html`<div class="card" style=${{ textAlign: 'center', color: 'var(--text-dim)', padding: 40 }}>
-          No hosts registered. Deploy the agent on your machines to get started.
-        </div>`
-      )}
+      <div class="card">
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th style=${{ width: 28 }}><input type="checkbox" aria-label="Select all hosts" checked=${allOn} onChange=${toggleAll}/></th>
+              <th>Status</th><th>Host</th><th>Kind</th><th>OS</th><th>Address</th><th>Agent version</th><th>Tags</th><th>Groups</th><th>Last seen</th><th></th>
+            </tr></thead>
+            <tbody>${rows.map(renderRow)}</tbody>
+          </table>
+        </div>
+        ${rows.length === 0 && html`<div style=${{ textAlign: 'center', color: 'var(--text-dim)', padding: 30 }}>
+          ${hosts.length === 0 ? 'No hosts registered. Deploy the agent on your machines or add an SSH host.' : 'No host matches the filters.'}
+        </div>`}
+      </div>
 
       
       ${showManageGroups && (
@@ -182,7 +194,7 @@ export default function HostsPage({ hosts, onSelectHost, addToast }) {
                     html`<tr key=${g.id}>
                       <td><span style=${{ display: 'inline-block', width: 16, height: 16, borderRadius: 3, background: g.color }}/></td>
                       <td style=${{ fontWeight: 600 }}>${g.name}</td>
-                      <td>${(grouped[g.id] || []).length}</td>
+                      <td>${hosts.filter(h => (h.groups || []).some(x => x.id === g.id)).length}</td>
                       <td>
                         <button class="btn btn-sm btn-danger" onClick=${() => deleteGroup(g.id)}>
                           <${Icons.Trash}/>
@@ -200,47 +212,23 @@ export default function HostsPage({ hosts, onSelectHost, addToast }) {
               No groups yet. Create one above.
             </div>`
           )}
+
+          <div class="form-label" style=${{ marginTop: 16 }}>Tags</div>
+          ${tags.length === 0 && html`<div class="page-desc">No tags yet. Add them from a host's settings or the bulk bar.</div>`}
+          ${tags.map(t => html`<${Chip} key=${t.id} item=${t} onRemove=${() => deleteTag(t.id)}/>`)}
         <//>`
       )}
 
-      
-      ${assigningHost && (
-        html`<${Modal} title=${`Assign: ${assigningHost.hostname}`} onClose=${() => setAssigningHost(null)}>
-          <div style=${{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div
-              onClick=${() => assignHost(assigningHost.id, null)}
-              style=${{
-                padding: '10px 14px', borderRadius: 6, cursor: 'pointer',
-                background: !assigningHost.group_id ? 'rgba(59,130,246,0.1)' : 'var(--bg-input)',
-                border: `1px solid ${!assigningHost.group_id ? 'var(--accent)' : 'var(--border)'}`,
-                fontSize: 13
-              }}>
-              No group (ungrouped)
-            </div>
-            ${groups.map(g => (
-              html`<div key=${g.id}
-                onClick=${() => assignHost(assigningHost.id, g.id)}
-                style=${{
-                  padding: '10px 14px', borderRadius: 6, cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', gap: 10,
-                  background: assigningHost.group_id === g.id ? 'rgba(59,130,246,0.1)' : 'var(--bg-input)',
-                  border: `1px solid ${assigningHost.group_id === g.id ? 'var(--accent)' : 'var(--border)'}`,
-                  fontSize: 13
-                }}>
-                <span style=${{ width: 12, height: 12, borderRadius: 3, background: g.color, flexShrink: 0 }}/>
-                ${g.name}
-              </div>`
-            ))}
-          </div>
-          ${groups.length === 0 && (
-            html`<div style=${{ color: 'var(--text-dim)', fontSize: 13, marginTop: 12 }}>
-              Create groups first via "Manage Groups" on the Hosts page.
-            </div>`
-          )}
-        <//>`
-      )}
 
-      
+      ${removing && html`<${RemoveDialog} hosts=${removing} addToast=${addToast} onClose=${() => setRemoving(null)}
+        onDone=${() => { setRemoving(null); setSelected(new Set()); refresh(); }}/>`}
+
+      ${settingsHost && html`<${HostSettings} host=${settingsHost} groups=${groups} isAdmin=${isAdmin} addToast=${addToast}
+        onClose=${() => setSettingsHost(null)} onSaved=${() => { setSettingsHost(null); refresh(); }}/>`}
+
+      ${addingSsh && html`<${AddSshHost} isAdmin=${isAdmin} addToast=${addToast}
+        onClose=${() => setAddingSsh(false)} onCreated=${() => { setAddingSsh(false); refresh(); }}/>`}
+
       ${selectedHost && (
         html`<${HostDetailModal} host=${selectedHost} onClose=${() => setSelectedHost(null)} addToast=${addToast}/>`
       )}

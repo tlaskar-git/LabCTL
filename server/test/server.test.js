@@ -84,16 +84,17 @@ test('roles, typed confirmation and the audit log', async (t) => {
   assert.equal((await viewer('POST', '/api/auth/logout')).status, 200);
 
   s.ctx.db.prepare("INSERT INTO hosts (id, hostname, status) VALUES ('h9', 'node-c.example.test', 'offline')").run();
-  assert.equal((await op('DELETE', '/api/hosts/h9', {})).status, 400);
-  assert.equal((await op('DELETE', '/api/hosts/h9', { confirm: 'wrong' })).status, 400);
-  assert.equal((await op('DELETE', '/api/hosts/h9', { confirm: 'node-c.example.test' })).status, 200);
+  assert.equal((await op('DELETE', '/api/hosts/h9', { confirm: 'node-c.example.test' })).status, 403); // removal is admin only
+  assert.equal((await admin('DELETE', '/api/hosts/h9', {})).status, 400);
+  assert.equal((await admin('DELETE', '/api/hosts/h9', { confirm: 'wrong' })).status, 400);
+  assert.equal((await admin('DELETE', '/api/hosts/h9', { confirm: 'node-c.example.test' })).status, 200);
 
   assert.equal((await admin('PUT', '/api/settings', { timezone: 'Not/AZone' })).status, 400);
   assert.equal((await admin('POST', '/api/schedules', { name: 'n', host_id: 'h1', type: 'reboot', cron: 'bad cron' })).status, 400);
 
   const audit = await admin('GET', '/api/audit?action=/api/hosts&limit=10');
   const del = audit.data.rows.find(r => r.action === 'DELETE /api/hosts/:id' && r.detail.status === 200);
-  assert.equal(del.actor, 'op1');
+  assert.equal(del.actor, 'LabCTLAdmin');
   assert.equal(del.host_id, 'h9');
   const logins = await admin('GET', '/api/audit?action=login');
   assert.ok(logins.data.total >= 3);

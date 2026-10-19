@@ -11,7 +11,7 @@ export default function MonitoringPage({ hosts, addToast, currentUser }) {
   const load = async () => {
     try {
       const [h, m, s] = await Promise.all([
-        api('/api/health'),
+        api('/api/health/hosts'),
         api(`/api/metrics?limit=300${hostId ? `&host_id=${hostId}` : ''}`),
         api('/api/settings')
       ]);
