@@ -1,0 +1,46 @@
+/* Local fonts (latin subset, woff2). System fallbacks are set where each family is used. */
+@font-face { font-family: 'Onest'; font-style: normal; font-display: swap; font-weight: 100 900; src: url(../fonts/onest-latin-wght-normal.woff2) format('woff2'); }
+@font-face { font-family: 'Geist Mono'; font-style: normal; font-display: swap; font-weight: 100 900; src: url(../fonts/geist-mono-latin-wght-normal.woff2) format('woff2'); }
+@font-face { font-family: 'Big Shoulders Inline Text'; font-style: normal; font-display: swap; font-weight: 900; src: url(../fonts/big-shoulders-inline-text-latin-900-normal.woff2) format('woff2'); }
+
+:root {
+  --bg-primary: #06090F;
+  --bg-secondary: #0F1424;
+  --bg-card: #161F33;
+  --bg-card-hover: #1d2942;
+  --bg-input: #0A0E1A;
+  --border: #1F2A40;
+  --border-focus: #06B6D4;
+  --text-primary: #EDEBE3;
+  --text-secondary: #8A93A7;
+  --text-dim: #647086;
+  --accent: #06B6D4;
+  --accent-hover: #38BDF8;
+  --accent-glow: rgba(6,182,212,0.18);
+  --green: #34d399;
+  --green-bg: rgba(52,211,153,0.1);
+  --red: #f87171;
+  --red-bg: rgba(248,113,113,0.1);
+  --yellow: #fbbf24;
+  --yellow-bg: rgba(251,191,36,0.1);
+  --orange: #fb923c;
+  --purple: #67E8F9;
+  --card-shadow: 0 1px 3px rgba(0,0,0,0.3), 0 0 0 1px var(--border);
+}
+
+[data-theme="light"] {
+  --bg-primary: #F5F4EF;
+  --bg-secondary: #FFFFFF;
+  --bg-card: #FFFFFF;
+  --bg-card-hover: #ECFEFF;
+  --bg-input: #FFFFFF;
+  --border: #E0DED6;
+  --border-focus: #06B6D4;
+  --text-primary: #0A0E1A;
+  --text-secondary: #374151;
+  --text-dim: #6B7385;
+  --accent: #0E7490;
+  --accent-hover: #06B6D4;
+  --accent-glow: rgba(6,182,212,0.14);
+  --card-shadow: 0 1px 3px rgba(10,14,26,0.08), 0 0 0 1px var(--border);
+}

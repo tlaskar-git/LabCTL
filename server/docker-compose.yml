@@ -8,6 +8,9 @@ services:
     ports:
       - "7700:7700"
     volumes:
+      # Repo-root data/ (same path as v1, so existing installs migrate in place). Must be writable by uid 1000.
       - ../data:/app/data
     environment:
       - PORT=7700
+      # Value comes from the shell or an env file, never from this file. Generate one with: npm run genkey
+      - LABCTL_MASTER_KEY
