@@ -9,6 +9,7 @@ RUN npm ci --omit=dev
 
 # Runtime stage: no compilers, runs as the non-root node user.
 FROM node:22-bookworm-slim
+LABEL org.opencontainers.image.source="https://github.com/tlaskar-git/LabCTL" org.opencontainers.image.title="labctl"
 ENV NODE_ENV=production DATA_DIR=/app/data PORT=7700
 WORKDIR /app
 COPY --from=build /app/node_modules ./node_modules

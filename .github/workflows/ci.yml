@@ -1,0 +1,65 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  node:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: cd server && npm ci && npm test && npm run lint
+      - run: node --test updater
+
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install websocket-client
+      - run: python -I -m unittest discover -s agent/tests
+
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: shellcheck agent/*.sh
+
+  psscriptanalyzer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          Install-Module PSScriptAnalyzer -Force -Scope CurrentUser
+          $r = Invoke-ScriptAnalyzer -Path agent -Include *.ps1 -Recurse -Severity Error,Warning
+          $r | Format-Table RuleName, Severity, ScriptName, Line, Message -AutoSize
+          if ($r | Where-Object Severity -eq 'Error') { exit 1 }
+
+  docker-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -f server/Dockerfile -t labctl:ci .
+      - run: docker build -f updater/Dockerfile -t labctl-updater:ci .
+      - name: Start the server image and wait for /api/health
+        run: |
+          docker run -d --name labctl-ci -p 7700:7700 -e LABCTL_MASTER_KEY="$(openssl rand -base64 32)" labctl:ci
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:7700/api/health; then exit 0; fi
+            sleep 2
+          done
+          docker logs labctl-ci
+          exit 1
