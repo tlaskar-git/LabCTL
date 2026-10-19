@@ -1,0 +1,7 @@
+PID	Status	Label
+-	0	com.apple.SafariHistoryServiceAgent
+412	0	com.apple.Finder
+-	78	com.example.backup-helper
+-	-9	com.apple.mdworker.shared.0B000000-0000-0000-0000-000000000000
+1180	-15	com.apple.coreservicesd
+-	1	com.example.sync

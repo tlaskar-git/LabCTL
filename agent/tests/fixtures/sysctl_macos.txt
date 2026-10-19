@@ -1,0 +1,2 @@
+kern.boottime: { sec = 1712300000, usec = 123456 } Fri Apr  5 07:53:20 2024
+vm.swapusage: total = 2048.00M  used = 1024.50M  free = 1023.50M  (encrypted)

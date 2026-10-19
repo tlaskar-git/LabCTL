@@ -1,0 +1,9 @@
+sysfs /sys sysfs rw,nosuid,nodev,noexec,relatime 0 0
+proc /proc proc rw,nosuid,nodev,noexec,relatime 0 0
+udev /dev devtmpfs rw,nosuid,relatime 0 0
+tmpfs /run tmpfs rw,nosuid,nodev,noexec,relatime 0 0
+/dev/sda2 / ext4 rw,relatime,errors=remount-ro 0 0
+tmpfs /dev/shm tmpfs rw,nosuid,nodev 0 0
+/dev/sda1 /boot/efi vfat rw,relatime 0 0
+/dev/sdb1 /srv/data\040share xfs rw,relatime 0 0
+overlay /var/lib/docker/overlay2/abc/merged overlay rw,relatime 0 0

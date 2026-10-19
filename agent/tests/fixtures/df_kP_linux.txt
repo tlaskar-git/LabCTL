@@ -1,0 +1,8 @@
+Filesystem     1024-blocks     Used Available Capacity Mounted on
+udev               4021280        0   4021280       0% /dev
+tmpfs               809220     1180    808040       1% /run
+/dev/sda2         61091660 22345678  35610030      39% /
+tmpfs              4046100        0   4046100       0% /dev/shm
+/dev/sda1           523248     6220    517028       2% /boot/efi
+/dev/sdb1        961302560 81234567 831213113       9% /srv/data share
+overlay           61091660 22345678  35610030      39% /var/lib/docker/overlay2/abc/merged

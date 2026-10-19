@@ -1,0 +1,15 @@
+## sntp
++0.012345 +/- 0.023456 time.apple.com 192.0.2.10
+## chronyc tracking
+Reference ID    : C0000201 (ntp.example.test)
+Stratum         : 3
+Ref time (UTC)  : Mon Jan 15 12:00:00 2024
+System time     : 0.000250000 seconds slow of NTP time
+Last offset     : -0.000012345 seconds
+RMS offset      : 0.000045678 seconds
+Leap status     : Normal
+## w32tm stripchart
+Tracking time.windows.com [192.0.2.20:123].
+Collecting 1 samples.
+The current time is 15/01/2024 12:00:00.
+12:00:00, +00.0250000s

@@ -1,0 +1,10 @@
+{
+  "AMServiceEnabled": true,
+  "AntivirusEnabled": true,
+  "RealTimeProtectionEnabled": true,
+  "AntivirusSignatureLastUpdated": "\/Date(1705312800000)\/",
+  "AntivirusSignatureAge": 0,
+  "QuickScanAge": 1,
+  "FullScanAge": 4294967295,
+  "IsTamperProtected": true
+}

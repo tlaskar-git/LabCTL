@@ -1,0 +1,16 @@
+## fdesetup status
+FileVault is On.
+## fdesetup status off
+FileVault is Off.
+## socketfilterfw --getglobalstate
+Firewall is enabled. (State = 1)
+## socketfilterfw off
+Firewall is disabled. (State = 0)
+## spctl --status
+assessments enabled
+## spctl off
+assessments disabled
+## csrutil status
+System Integrity Protection status: enabled.
+## csrutil off
+System Integrity Protection status: disabled.
