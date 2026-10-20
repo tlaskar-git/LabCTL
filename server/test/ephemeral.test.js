@@ -121,7 +121,11 @@ test('a finished ephemeral runner is replaced once, the token reaches the script
   assert.equal(e.ephemeral.events.length, 1);
   assert.equal(e.ephemeral.events[0].ok, true);
 
-  // stale data must not trigger a second replacement, even once the 20 s gap has passed
+  // stale data must not trigger a second replacement, even once the 20 s gap has passed.
+  // The replacement registered with GitHub: the poll that the first replacement started in the background must see it,
+  // otherwise the result depends on whether that poll finished before the next tick.
+  gh.st.present = [{ name: 'eph-1' }];
+  await poll();
   later(25);
   assert.equal((await tick()).replaced.length, 0);
   assert.equal(agent.ran.length, 1);
