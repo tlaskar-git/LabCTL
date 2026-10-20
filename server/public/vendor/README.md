@@ -9,6 +9,7 @@ Files are copied unmodified from the npm tarballs named below (`npm pack <name>@
 | preact hooks | 10.29.8 | MIT | `preact/hooks.js` | `hooks/dist/hooks.mjs` |
 | htm | 3.1.1 | Apache-2.0 | `htm/htm.js` | `dist/htm.mjs` |
 | uPlot | 1.6.32 | MIT | `uplot/uPlot.iife.min.js`, `uplot/uPlot.min.css` | `dist/uPlot.iife.min.js`, `dist/uPlot.min.css` |
+| ansi_up | 6.0.6 | MIT | `ansi_up/ansi_up.js` | `ansi_up.js` (ES module, imported by relative path from `js/components/terminal.js`) |
 
 uPlot is the one edit: the repo URL in the banner comment of the script has its scheme removed, so the offline test that
 forbids http(s) URLs in vendored scripts passes. The code is untouched. `js/components/chart.js` loads the script and the
@@ -24,12 +25,6 @@ Fonts (latin subset, woff2, SIL Open Font Licence 1.1) are in `../fonts/` with t
 | Onest (variable) | @fontsource-variable/onest | 5.3.1 |
 | Geist Mono (variable) | @fontsource-variable/geist-mono | 5.3.0 |
 | Big Shoulders Inline Text 900 | @fontsource/big-shoulders-inline-text | 5.3.0 |
-
-## Planned (not added yet)
-
-| Library | Purpose | Added by |
-|---|---|---|
-| ansi_up | Colour job output (ANSI escapes) in the job drawer and log views | job drawer item |
 
 To add a library: pin an exact version, copy the single browser build into `vendor/<name>/`,
 add its licence file, add a row above, and map a bare name in the import map if modules import it by name.

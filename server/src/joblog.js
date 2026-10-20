@@ -27,9 +27,13 @@ function createJobLog(dir, getMaxBytes = () => 20971520) {
   return {
     dir,
     path: id => file(id),
-    append(id, chunk) {
+    // Each chunk also adds one line "<ms>\t<bytes>\t<o|e>" to <id>.idx (stream and time for replay and timestamps).
+    // shortcut: the index stops at 4 MB, and replay falls back to untimed stdout once the cap trims the log.
+    append(id, chunk, { stream = 'stdout', ts = Date.now() } = {}) {
       const data = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk ?? ''), 'utf8');
       if (!data.length) return;
+      const idxPath = file(id, '.idx');
+      if (size(idxPath) < 4194304) fs.appendFileSync(idxPath, `${ts}\t${data.length}\t${stream === 'stderr' ? 'e' : 'o'}\n`);
       const logPath = file(id);
       const tailPath = file(id, '.tail');
       const h = half();
@@ -59,13 +63,47 @@ function createJobLog(dir, getMaxBytes = () => 20971520) {
       if (size(tailPath) < 0) return head;
       return head + MARKER + lastBytes(tailPath, half()).toString('utf8');
     },
+    // The log as the reader sees it (head, marker, tail) as one Buffer.
+    readBuffer(id) {
+      const logPath = file(id);
+      const tailPath = file(id, '.tail');
+      const head = size(logPath) >= 0 ? fs.readFileSync(logPath) : Buffer.alloc(0);
+      if (size(tailPath) < 0) return head;
+      return Buffer.concat([head, Buffer.from(MARKER), lastBytes(tailPath, half())]);
+    },
+    // Replay entries {stream, ts, chunk, end} from byte offset `from`. Per-chunk data comes from the index when
+    // it matches the log exactly, else one untimed stdout entry. `end` is the byte offset after the entry.
+    replay(id, from = 0, buf = this.readBuffer(id)) {
+      let recs = [];
+      try {
+        recs = fs.readFileSync(file(id, '.idx'), 'utf8').split('\n').filter(Boolean).map(l => {
+          const [ts, len, s] = l.split('\t');
+          return { ts: Number(ts), len: Number(len), stream: s === 'e' ? 'stderr' : 'stdout' };
+        });
+      } catch { /* no index */ }
+      const out = [];
+      from = Math.max(0, Math.min(buf.length, Number(from) || 0));
+      if (recs.reduce((n, r) => n + r.len, 0) !== buf.length) {
+        if (from < buf.length) out.push({ stream: 'stdout', ts: null, chunk: buf.subarray(from).toString('utf8'), end: buf.length });
+        return out;
+      }
+      let pos = 0;
+      for (const r of recs) {
+        const end = pos + r.len;
+        if (end > from) out.push({ stream: r.stream, ts: r.ts, chunk: buf.subarray(Math.max(pos, from), end).toString('utf8'), end });
+        pos = end;
+      }
+      return out;
+    },
+    // Absolute path(s) of the stored output, in reading order (for streaming searches).
+    files(id) { return [file(id), file(id, '.tail')].filter(p => size(p) >= 0); },
     tail(id, bytes = 4096) {
       const tailPath = file(id, '.tail');
       return lastBytes(size(tailPath) >= 0 ? tailPath : file(id), bytes).toString('utf8');
     },
     write(id, text) { fs.writeFileSync(file(id), String(text ?? '')); },
     remove(id) {
-      for (const ext of ['.log', '.tail']) { try { fs.unlinkSync(file(id, ext)); } catch { /* absent */ } }
+      for (const ext of ['.log', '.tail', '.idx']) { try { fs.unlinkSync(file(id, ext)); } catch { /* absent */ } }
     },
     // Delete log files not modified for `days`. Returns the number removed.
     prune(days) {

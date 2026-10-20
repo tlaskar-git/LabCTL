@@ -5,17 +5,34 @@ module.exports = (app, ctx) => {
   const actor = req => req.user?.username;
 
   app.get('/api/jobs', (req, res) => {
-    const { host_id, status, limit = 200, offset = 0 } = req.query;
-    res.json(jobs.list({ host_id, status, limit, offset }).map(j => jobs.out(j)));
+    const { host_id, status, type, actor: by, group_id, from, to, limit = 200, offset = 0 } = req.query;
+    res.json(jobs.list({ host_id, status, type, actor: by, group_id, from, to, limit, offset }).map(j => jobs.out(j)));
   });
   app.get('/api/jobs/:id', (req, res) => {
     const job = jobs.get(req.params.id);
     if (!job) return res.status(404).json({ error: 'Not found' });
-    res.json(jobs.out(job, { full: true }));
+    res.json(jobs.out(job, { full: true, log: req.query.log !== '0' })); // ?log=0 skips the output (the drawer streams it)
   });
   app.get('/api/jobs/:id/log', (req, res) => {
     if (!jobs.get(req.params.id)) return res.status(404).json({ error: 'Not found' });
+    // ?from=&to= returns a byte range; a start inside a line moves forward to the next line start (X-Log-Start says where).
+    if (req.query.from !== undefined || req.query.to !== undefined) {
+      const buf = ctx.joblog.readBuffer(req.params.id);
+      const to = Math.min(buf.length, Number(req.query.to ?? buf.length) || 0);
+      let from = Math.max(0, Number(req.query.from) || 0);
+      if (from > 0 && buf[from - 1] !== 10) { const nl = buf.indexOf(10, from); if (nl >= 0 && nl + 1 < to) from = nl + 1; }
+      res.set({ 'X-Log-Start': String(from), 'X-Log-Total': String(buf.length) });
+      return res.type('text/plain').send(buf.subarray(from, Math.max(from, to)));
+    }
     res.type('text/plain').send(ctx.joblog.read(req.params.id));
+  });
+  // New job with the same host, type, params and script.
+  app.post('/api/jobs/:id/retry', (req, res) => {
+    const job = jobs.get(req.params.id);
+    if (!job) return res.status(404).json({ error: 'Not found' });
+    if (jobs.OPEN_STATES.includes(job.status)) return res.status(409).json({ error: 'Job is still open' });
+    const copy = jobs.copyJob(job, { actor: actor(req) });
+    res.json({ id: copy.id, status: copy.status });
   });
   app.post('/api/jobs', (req, res) => {
     const { host_id, type, params = {} } = req.body || {};
@@ -26,7 +43,9 @@ module.exports = (app, ctx) => {
   app.post('/api/jobs/batch', (req, res) => {
     const { host_ids, type, params = {} } = req.body || {};
     if (!Array.isArray(host_ids) || !type) return res.status(400).json({ error: 'host_ids and type required' });
-    res.json(host_ids.map(hid => ({ id: jobs.create({ host_id: hid, type, params, actor: actor(req) }).id, host_id: hid })));
+    // One group per batch; each entry carries group_id so the UI can open the host grid.
+    const group = jobs.createGroup({ label: type, type, actor: actor(req) });
+    res.json(host_ids.map(hid => ({ id: jobs.create({ host_id: hid, type, params, actor: actor(req), group_id: group.id }).id, host_id: hid, group_id: group.id })));
   });
   app.post('/api/jobs/:id/cancel', (req, res) => {
     if (!jobs.cancel(req.params.id)) return res.status(404).json({ error: 'Not found' });

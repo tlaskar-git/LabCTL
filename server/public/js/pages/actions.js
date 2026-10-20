@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'preact/hooks';
 import { api, downloadBlob } from '../api.js';
 import { html, Icons, StatusBadge, Modal } from '../ui.js';
 import { JOB_TYPES } from '../job-types.js';
+import { openJobDrawer } from '../job-drawer.js';
 
 // ── Actions Page ──────────────────────────────────────────
 export default function ActionsPage({ hosts, addToast }) {
@@ -143,6 +144,7 @@ export default function ActionsPage({ hosts, addToast }) {
     const newJobs = res.map(j => ({ ...j, type: jobType, status: 'pending', result: '', error: '', hostname: hosts.find(h => h.id === j.host_id)?.hostname || j.host_id }));
     setModalJobs(prev => [...newJobs, ...prev]);
     setJobParams({});
+    if (res.length) openJobDrawer(res.length === 1 ? res[0].id : res[0].group_id); // live output, or the host grid for several hosts
   };
 
   const submitChain = async () => {
@@ -160,6 +162,7 @@ export default function ActionsPage({ hosts, addToast }) {
     }
     setModalJobs(prev => [...newJobs, ...prev]);
     setJobParams({});
+    if (newJobs.length === 1) openJobDrawer(newJobs[0].id);
   };
 
   return (

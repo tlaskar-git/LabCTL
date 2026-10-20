@@ -48,31 +48,63 @@ export function downloadBlob(content, filename, type = 'text/plain') {
 }
 
 // ── Live updates ─────────────────────────────────────────
-// subscribe(topic, fn) calls fn(data) now (if cached) and on every refresh.
-// Transport today: poll GET /api/<topic> every 3 s while at least one listener exists.
-// Replace the body of start() to move to another transport; callers do not change.
+// subscribe(topic, fn) calls fn(data) now (if cached) and on every refresh. The topic is the path after /api/,
+// so 'jobs?limit=50' works. One shared EventSource on /api/events sends small change notices (host online/offline,
+// job status); each notice re-fetches every active topic. While the stream is down, topics poll every 3 s.
+// With the stream up they still poll every 15 s as a safety net.
 const POLL_MS = 3000;
+const SAFETY_MS = 15000;
 const feeds = new Map();
+let source = null;
+let live = false;
+let burst = null;
+
+function refreshAll() {
+  clearTimeout(burst);
+  burst = setTimeout(() => feeds.forEach(f => f.tick()), 150);
+}
+
+function retime() {
+  feeds.forEach(f => { clearInterval(f.timer); f.timer = setInterval(f.tick, live ? SAFETY_MS : POLL_MS); });
+}
+
+function connect() {
+  if (source || typeof EventSource === 'undefined') return;
+  source = new EventSource(`${API}/api/events`);
+  source.onopen = () => { live = true; retime(); };
+  source.onerror = () => { live = false; retime(); }; // the browser reconnects by itself
+  source.addEventListener('host', refreshAll);
+  source.addEventListener('job', refreshAll);
+}
+
+function disconnect() {
+  if (source) source.close();
+  source = null; live = false;
+}
 
 function start(topic, feed) {
-  const tick = async () => {
+  feed.tick = async () => {
     try {
       feed.data = await api(`/api/${topic}`);
       feed.subs.forEach(fn => fn(feed.data));
     } catch (e) { console.error(e); }
   };
-  tick();
-  feed.timer = setInterval(tick, POLL_MS);
+  feed.tick();
+  feed.timer = setInterval(feed.tick, live ? SAFETY_MS : POLL_MS);
+  connect();
 }
 
 export function subscribe(topic, fn) {
   let feed = feeds.get(topic);
-  if (!feed) { feed = { subs: new Set(), data: undefined, timer: null }; feeds.set(topic, feed); }
+  if (!feed) { feed = { subs: new Set(), data: undefined, timer: null, tick: null }; feeds.set(topic, feed); }
   feed.subs.add(fn);
   if (feed.data !== undefined) fn(feed.data);
   if (!feed.timer) start(topic, feed);
   return () => {
     feed.subs.delete(fn);
-    if (!feed.subs.size) { clearInterval(feed.timer); feed.timer = null; feed.data = undefined; }
+    if (!feed.subs.size) {
+      clearInterval(feed.timer); feed.timer = null; feed.data = undefined; feeds.delete(topic);
+      if (!feeds.size) disconnect();
+    }
   };
 }
