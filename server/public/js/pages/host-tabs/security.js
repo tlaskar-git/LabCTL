@@ -1,4 +1,5 @@
 import { html } from '../../ui.js';
+import { VpsPanel } from '../../components/vps-panel.js';
 import { InventoryGate, Section, KV, toneBadge, fmtDate, arr } from '../../components/chart-kit.js';
 
 // Props: host (record from the hosts list, may be undefined), hostId, addToast.
@@ -6,7 +7,7 @@ const flag = v => (v === null || v === undefined ? null : toneBadge(v ? 'ok' : '
 const text = v => (v === null || v === undefined ? null : typeof v === 'object' ? Object.entries(v).map(([k, x]) => `${k}: ${x}`).join(', ') : String(v));
 const days = v => (v === null || v === undefined ? null : `${v} days`);
 
-export default function SecurityTab({ hostId }) {
+function Inner({ hostId }) {
   return html`<${InventoryGate} hostId=${hostId}>${inv => {
     const s = inv.security || {};
     const def = s.defender;
@@ -31,4 +32,12 @@ export default function SecurityTab({ hostId }) {
       ${!inv.security && html`<div class="page-desc">The agent has not collected security data for this host.</div>`}
     </div>`;
   }}<//>`;
+}
+
+export default function SecurityTab({ host, hostId, addToast }) {
+  const h = host || { id: hostId };
+  return html`<div>
+    <${Inner} host=${host} hostId=${hostId}/>
+    <${VpsPanel} host=${h} view="security" addToast=${addToast}/>
+  </div>`;
 }

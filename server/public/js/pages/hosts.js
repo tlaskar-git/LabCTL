@@ -7,17 +7,20 @@ import { HostFilters, EMPTY_FILTERS } from '../components/host-filters.js';
 import { RemoveDialog } from '../components/host-remove-dialog.js';
 import { HostSettings } from '../components/host-settings.js';
 import { AddSshHost } from '../components/host-add-ssh.js';
+import { filtersFromQuery, fleetHostIds, FLEET_FILTERS } from '../components/host-query.js';
 
 const seen = iso => (iso ? iso.slice(0, 19).replace('T', ' ') : '—');
 const GROUP_COLORS = ['#3b82f6','#22c55e','#f97316','#a855f7','#ef4444','#eab308','#06b6d4','#ec4899'];
 
 // ── Hosts: search, filters, bulk actions, remove ──────────
-export default function HostsPage({ hosts, addToast, currentUser }) {
+export default function HostsPage({ hosts, addToast, currentUser, query }) {
   const isAdmin = currentUser?.role === 'admin';
   const canEdit = currentUser?.role !== 'viewer';
   const online = hosts.filter(h => h.online || h.status === 'online').length;
   const [rows, setRows] = useState([]);
-  const [filters, setFilters] = useState(EMPTY_FILTERS);
+  const fromUrl = filtersFromQuery(query, EMPTY_FILTERS);
+  const [filters, setFilters] = useState(fromUrl.filters);
+  const [fleet, setFleet] = useState(fromUrl.fleet);
   const [selected, setSelected] = useState(new Set());
   const [groups, setGroups] = useState([]);
   const [tags, setTags] = useState([]);
@@ -32,8 +35,12 @@ export default function HostsPage({ hosts, addToast, currentUser }) {
   const [bulkGroup, setBulkGroup] = useState('');
 
   const loadRows = async () => {
-    const query = new URLSearchParams(Object.entries(filters).filter(([, v]) => v));
-    try { setRows(await api(`/api/hosts?${query}`)); } catch (e) { console.error(e); }
+    const params = new URLSearchParams(Object.entries(filters).filter(([, v]) => v));
+    try {
+      const list = await api(`/api/hosts?${params}`);
+      const ids = fleet.length ? fleetHostIds(fleet, await api('/api/fleet/summary')) : null;
+      setRows(ids ? list.filter(h => ids.has(h.id)) : list);
+    } catch (e) { console.error(e); }
   };
   const loadMeta = async () => {
     try {
@@ -44,7 +51,9 @@ export default function HostsPage({ hosts, addToast, currentUser }) {
   };
   const refresh = () => { loadRows(); loadMeta(); };
 
-  useEffect(() => { loadRows(); const t = setInterval(loadRows, 3000); return () => clearInterval(t); }, [JSON.stringify(filters)]);
+  useEffect(() => { loadRows(); const t = setInterval(loadRows, 3000); return () => clearInterval(t); }, [JSON.stringify(filters), fleet.join()]);
+  // A new hash query (a fleet tile, a link) replaces the filters, so the filter bar always shows what the URL says.
+  useEffect(() => { const f = filtersFromQuery(query, EMPTY_FILTERS); setFilters(f.filters); setFleet(f.fleet); }, [JSON.stringify(query)]);
   useEffect(() => { loadMeta(); }, []);
   useEffect(() => {
     const openGroups = () => setShowManageGroups(true);
@@ -125,7 +134,9 @@ export default function HostsPage({ hosts, addToast, currentUser }) {
         </div>
       </div>
 
-      <${HostFilters} filters=${filters} onChange=${setFilters} options=${{ os: osOptions, groups, tags }}/>
+      <${HostFilters} filters=${filters} onChange=${f => { setFilters(f); if (!Object.values(f).some(Boolean)) setFleet([]); }} options=${{ os: osOptions, groups, tags }}/>
+      ${fleet.length > 0 && html`<div style=${{ marginBottom: 12 }}>${fleet.map(k => html`<span key=${k} class="badge badge-pending" style=${{ marginRight: 8 }}>${FLEET_FILTERS[k].label}</span>`)}
+        <button class="btn btn-sm" onClick=${() => setFleet([])}>Clear fleet filter</button></div>`}
 
       ${picked.length > 0 && html`<div class="card" style=${{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', padding: '10px 14px' }}>
         <strong>${picked.length} selected</strong>

@@ -1,4 +1,6 @@
 import { html, StatusBadge } from '../../ui.js';
+import { VpsPanel } from '../../components/vps-panel.js';
+import { ProxmoxPanel } from '../../components/proxmox-panel.js';
 import { InventoryGate, Gauge, Section, KV, DataTable, toneBadge, fmtBytes, fmtDate, fmtDuration, fmtAgo, daysSince, arr } from '../../components/chart-kit.js';
 
 // Props: host (record from the hosts list, may be undefined), hostId, addToast.
@@ -41,7 +43,7 @@ function Mac({ d }) {
   <//>`;
 }
 
-export default function OverviewTab({ host, hostId }) {
+function Inner({ host, hostId }) {
   return html`<${InventoryGate} hostId=${hostId}>${(inv, at) => {
     const hb = host?.heartbeat || {};
     const mem = inv.memory || {};
@@ -92,4 +94,13 @@ export default function OverviewTab({ host, hostId }) {
       ${inv.darwin && html`<${Mac} d=${inv.darwin}/>`}
     </div>`;
   }}<//>`;
+}
+
+export default function OverviewTab({ host, hostId, addToast }) {
+  const h = host || { id: hostId };
+  return html`<div>
+    <${Inner} host=${host} hostId=${hostId}/>
+    <${VpsPanel} host=${h} view="overview" addToast=${addToast}/>
+    <${ProxmoxPanel} host=${h} view="overview" addToast=${addToast}/>
+  </div>`;
 }

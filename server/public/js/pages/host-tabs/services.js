@@ -1,10 +1,11 @@
 import { html } from '../../ui.js';
+import { VpsPanel } from '../../components/vps-panel.js';
 import { InventoryGate, Section, DataTable, toneBadge, fmtDate, arr } from '../../components/chart-kit.js';
 
 // Props: host (record from the hosts list, may be undefined), hostId, addToast.
 // The agent reports failed services only (systemd failed units, stopped automatic Windows services, launchd jobs
 // with a non-zero exit), so this tab lists those, not every service on the host.
-export default function ServicesTab({ hostId }) {
+function Inner({ hostId }) {
   return html`<${InventoryGate} hostId=${hostId}>${inv => {
     const failed = arr(inv.services?.failed);
     return html`<div>
@@ -20,4 +21,12 @@ export default function ServicesTab({ hostId }) {
       <//>`}
     </div>`;
   }}<//>`;
+}
+
+export default function ServicesTab({ host, hostId, addToast }) {
+  const h = host || { id: hostId };
+  return html`<div>
+    <${Inner} host=${host} hostId=${hostId}/>
+    <${VpsPanel} host=${h} view="services" addToast=${addToast}/>
+  </div>`;
 }

@@ -1,11 +1,13 @@
 import { html } from '../../ui.js';
+import { VpsPanel } from '../../components/vps-panel.js';
+import { ProxmoxPanel } from '../../components/proxmox-panel.js';
 import { InventoryGate, Section, KV, DataTable, toneBadge, fmtBytes, fmtDate, daysSince, arr } from '../../components/chart-kit.js';
 
 // Props: host (record from the hosts list, may be undefined), hostId, addToast.
 const name = i => (typeof i === 'string' ? i : i?.name || i?.label || JSON.stringify(i));
 const gap = html`<div style=${{ height: 10 }}/>`;
 
-export default function SoftwareUpdatesTab({ hostId }) {
+function Inner({ hostId }) {
   return html`<${InventoryGate} hostId=${hostId}>${inv => {
     const up = inv.updates || {};
     const d = inv.darwin || {};
@@ -49,4 +51,13 @@ export default function SoftwareUpdatesTab({ hostId }) {
       ${inv.proxmox && html`<${Section} title="Proxmox"><${KV} rows=${[['Version', inv.proxmox.version ?? null]]}/><//>`}
     </div>`;
   }}<//>`;
+}
+
+export default function SoftwareUpdatesTab({ host, hostId, addToast }) {
+  const h = host || { id: hostId };
+  return html`<div>
+    <${Inner} host=${host} hostId=${hostId}/>
+    <${VpsPanel} host=${h} view="updates" addToast=${addToast}/>
+    <${ProxmoxPanel} host=${h} view="updates" addToast=${addToast}/>
+  </div>`;
 }
