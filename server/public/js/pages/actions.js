@@ -4,6 +4,7 @@ import { html, Icons, StatusBadge, Modal } from '../ui.js';
 import { JOB_TYPES } from '../job-types.js';
 import { openJobDrawer } from '../job-drawer.js';
 import { fmtDuration } from '../components/job-tiles.js';
+import { authHeaders } from '../components/terminal-text.js';
 
 const OPEN = ['pending', 'sent', 'running', 'waiting'];
 const TAIL = 16384;
@@ -22,7 +23,7 @@ function LogTail({ job }) {
     const load = async () => {
       try {
         const from = Math.max(0, total.current - TAIL);
-        const res = await fetch(logUrl(job.id, from), { credentials: 'same-origin' });
+        const res = await fetch(logUrl(job.id, from), { credentials: 'same-origin', headers: authHeaders() });
         if (!res.ok || stop) return;
         const size = Number(res.headers.get('X-Log-Total')) || 0;
         const body = await res.text();
@@ -51,7 +52,7 @@ function JobCard({ job, onCancel }) {
   const start = job.started_at || job.created_at;
   const elapsed = start ? (open ? Date.now() - new Date(start) : (job.duration_ms ?? (job.completed_at ? new Date(job.completed_at) - new Date(start) : null))) : null;
   const download = async () => {
-    const res = await fetch(logUrl(job.id), { credentials: 'same-origin' });
+    const res = await fetch(logUrl(job.id), { credentials: 'same-origin', headers: authHeaders() });
     if (res.ok) downloadBlob(await res.text(), `${job.hostname}-${job.type}-${job.id.slice(0, 8)}.log`);
   };
   const sentFor = job.status === 'sent' && job.sent_at ? Math.round((Date.now() - new Date(job.sent_at)) / 1000) : null;

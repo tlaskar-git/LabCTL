@@ -3,6 +3,7 @@ import { api, API } from './api.js';
 import { html, Icons, StatusBadge } from './ui.js';
 import { useAppState } from './state.js';
 import { Terminal } from './components/terminal.js';
+import { authHeaders, readSse } from './components/terminal-text.js';
 import { JobTiles, GroupProgress, fmtDuration } from './components/job-tiles.js';
 
 // Job drawer. openJobDrawer(id) takes a job id, or a group id ("grp-...") for a multi-host job.
@@ -44,9 +45,9 @@ function JobView({ id, search }) {
   const { user } = useAppState();
   const [job, setJob] = useState(null);
   const [error, setError] = useState('');
-  const [bytes, setBytes] = useState(0);
+  const [bytes, setBytes] = useState(null); // log size reported by the terminal, so the header matches what it shows
   const load = () => api(`/api/jobs/${encodeURIComponent(id)}?log=0`).then(j => { setJob(j); setError(''); }).catch(e => setError(e.message));
-  useEffect(() => { setJob(null); setBytes(0); load(); }, [id]);
+  useEffect(() => { setJob(null); setBytes(null); load(); }, [id]);
   const open = !!job && OPEN.includes(job.status);
   const now = useTicker(open);
   const canAct = user && ['operator', 'admin'].includes(user.role);
@@ -63,7 +64,7 @@ function JobView({ id, search }) {
   if (error && !job) return html`<div class="card" style=${{ color: 'var(--red)' }}>${error}</div>`;
   if (!job) return html`<div class="page-desc">Loading...</div>`;
   const start = job.started_at || job.created_at;
-  const received = Math.max(bytes, job.bytes_received || 0);
+  const received = bytes ?? (job.bytes_received || 0);
   const duration = open ? now - new Date(start) : (job.duration_ms ?? (job.completed_at ? new Date(job.completed_at) - new Date(start) : null));
   return html`<div>
     <div style=${{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
@@ -85,7 +86,6 @@ function JobView({ id, search }) {
     ${job.error && html`<div style=${{ color: 'var(--red)', fontSize: 12, marginBottom: 8 }}>${job.error}</div>`}
     ${job.status === 'sent' && !received && html`<div style=${{ color: 'var(--text-dim)', fontSize: 12, marginBottom: 8 }}>
       Sent to the agent, waiting for the first output (${Math.max(0, Math.round((now - new Date(job.sent_at || job.created_at)) / 1000))} s)</div>`}
-    ${!open && !received && html`<div style=${{ color: 'var(--text-dim)', fontSize: 12, marginBottom: 8, fontStyle: 'italic' }}>No output</div>`}
     ${error && html`<div style=${{ color: 'var(--red)', fontSize: 12, marginBottom: 8 }}>${error}</div>`}
     <${Terminal} key=${id} jobId=${id} initialSearch=${search} onEvent=${onEvent} name=${`${job.hostname}-${job.type}-${String(id).slice(0, 8)}`.replace(/[^A-Za-z0-9._-]/g, '_')}/>
   </div>`;
@@ -99,16 +99,30 @@ function GroupView({ id }) {
   const now = useTicker(!!sum && !sum.finished);
   const canAct = user && ['operator', 'admin'].includes(user.role);
 
+  // The group stream goes through fetch with the session token (EventSource cannot send it). When it ends before the
+  // group finishes, the summary is polled every 2 s.
   useEffect(() => {
     setSum(null); setPick(null);
-    const es = new EventSource(`${API}/api/job-groups/${encodeURIComponent(id)}/stream`);
-    es.addEventListener('status', e => { const d = JSON.parse(e.data); setSum(d); if (d.finished) es.close(); });
-    es.addEventListener('tile', e => {
+    const url = `${API}/api/job-groups/${encodeURIComponent(id)}`;
+    const ctrl = new AbortController();
+    let finished = false, stopped = false, timer = null;
+    const onSse = e => {
       const d = JSON.parse(e.data);
-      setSum(s => s && { ...s, hosts: s.hosts.map(h => (h.job_id === d.job_id ? { ...h, last_line: d.last_line, bytes_received: d.bytes_received } : h)) });
-    });
-    es.onerror = () => { if (es.readyState === 2) setError('Group not found'); };
-    return () => es.close();
+      if (e.type === 'status') { setSum(d); finished = !!d.finished; }
+      else if (e.type === 'tile') setSum(s => s && { ...s, hosts: s.hosts.map(h => (h.job_id === d.job_id ? { ...h, last_line: d.last_line, bytes_received: d.bytes_received } : h)) });
+    };
+    const poll = async () => {
+      try {
+        const r = await fetch(url, { headers: authHeaders(), credentials: 'same-origin', signal: ctrl.signal });
+        if (r.status === 404) return setError('Group not found');
+        if (r.ok) { const d = await r.json(); setSum(d); finished = !!d.finished; }
+      } catch { /* next tick */ }
+      if (!finished && !stopped) timer = setTimeout(poll, 2000);
+    };
+    readSse(`${url}/stream`, onSse, { signal: ctrl.signal })
+      .then(({ status }) => { if (status === 404) setError('Group not found'); else if (!finished && !stopped) poll(); })
+      .catch(() => { if (!stopped) poll(); });
+    return () => { stopped = true; ctrl.abort(); clearTimeout(timer); };
   }, [id]);
 
   const retryFailed = async () => {

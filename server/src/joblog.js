@@ -3,6 +3,7 @@
 // While a job runs, the tail lives in <job_id>.tail and is folded into the .log by finish().
 const fs = require('fs');
 const path = require('path');
+const { StringDecoder } = require('string_decoder');
 
 const MARKER = '\n[labctl] output truncated: the middle part was removed to keep the log under the size cap\n';
 
@@ -71,8 +72,10 @@ function createJobLog(dir, getMaxBytes = () => 20971520) {
       if (size(tailPath) < 0) return head;
       return Buffer.concat([head, Buffer.from(MARKER), lastBytes(tailPath, half())]);
     },
-    // Replay entries {stream, ts, chunk, end} from byte offset `from`. Per-chunk data comes from the index when
-    // it matches the log exactly, else one untimed stdout entry. `end` is the byte offset after the entry.
+    // Replay entries {stream, ts, chunk, end} from byte offset `from`, always covering every byte of the log.
+    // The index only adds stream and time: records are used while they fit the log, the rest is one untimed stdout
+    // entry, and an index longer than the log (the cap trimmed it) is ignored. `end` is the byte offset after the entry.
+    // One decoder runs across entries, so a UTF-8 character split between two records stays whole.
     replay(id, from = 0, buf = this.readBuffer(id)) {
       let recs = [];
       try {
@@ -83,16 +86,19 @@ function createJobLog(dir, getMaxBytes = () => 20971520) {
       } catch { /* no index */ }
       const out = [];
       from = Math.max(0, Math.min(buf.length, Number(from) || 0));
-      if (recs.reduce((n, r) => n + r.len, 0) !== buf.length) {
-        if (from < buf.length) out.push({ stream: 'stdout', ts: null, chunk: buf.subarray(from).toString('utf8'), end: buf.length });
-        return out;
-      }
+      if (recs.some(r => !(r.len > 0)) || recs.reduce((n, r) => n + r.len, 0) > buf.length) recs = [];
+      const dec = new StringDecoder('utf8');
+      const push = (stream, ts, start, end) => {
+        if (end <= from) return;
+        const chunk = dec.write(buf.subarray(Math.max(start, from), end));
+        if (chunk) out.push({ stream, ts, chunk, end });
+        else if (out.length) out[out.length - 1].end = end; // bytes held for the next character still count as read
+      };
       let pos = 0;
-      for (const r of recs) {
-        const end = pos + r.len;
-        if (end > from) out.push({ stream: r.stream, ts: r.ts, chunk: buf.subarray(Math.max(pos, from), end).toString('utf8'), end });
-        pos = end;
-      }
+      for (const r of recs) { push(r.stream, r.ts, pos, pos + r.len); pos += r.len; }
+      push('stdout', null, pos, buf.length);
+      const rest = dec.end(); // an incomplete character at the very end
+      if (rest) { if (out.length) out[out.length - 1].chunk += rest; else out.push({ stream: 'stdout', ts: null, chunk: rest, end: buf.length }); }
       return out;
     },
     // Absolute path(s) of the stored output, in reading order (for streaming searches).

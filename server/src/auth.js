@@ -63,6 +63,11 @@ function createAuth(db) {
       if (!user) return res.status(401).json({ error: 'Authentication required' });
       req.user = user;
       req.sessionToken = token;
+      // EventSource cannot send the Bearer header and needs the cookie: give it back to a browser that lost it
+      // (it expires after 7 days while the stored token does not) and keep it fresh while the session is in use.
+      if (parseCookie(req.get('cookie')).labctl_session !== token) {
+        res.cookie('labctl_session', token, { httpOnly: true, sameSite: 'lax', maxAge: 7 * 86400000 });
+      }
       next();
     },
     // requireRole('operator') allows operator and admin.
