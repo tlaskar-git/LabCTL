@@ -48,12 +48,15 @@ module.exports = (app, ctx) => {
     deploy.stream(d, req, res);
   });
 
+  // v1 stored the full OS text (for example debian-12 or windows-server-2025), the deploy engine wants linux, mac or windows.
+  const osOfHost = v => (/windows/i.test(v || '') ? 'windows' : /darwin|mac/i.test(v || '') ? 'mac' : 'linux');
+
   // What a redeploy or an offline uninstall knows about the host: the target saved by its last deploy.
   function hostDefaults(h, req) {
     const dd = ops.getData(db, h.id).deploy || {};
     const reset = req.body?.reset_host_key;
     if (reset && !isAdmin(req)) throw deploy.bad('admin role required to reset the host key', 403);
-    return { os: dd.os || h.os, address: dd.address || h.ip, port: dd.port, relay_host_id: dd.relay_host_id, no_service: dd.no_service,
+    return { os: dd.os || osOfHost(h.os), address: dd.address || h.ip, port: dd.port, relay_host_id: dd.relay_host_id, no_service: dd.no_service,
       host_key: reset ? '' : dd.host_key, auth: { user: dd.user, credential_id: dd.credential_id } };
   }
   const agentHost = req => {

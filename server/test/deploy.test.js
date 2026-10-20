@@ -257,6 +257,16 @@ test('save_credential: operators are refused, admins get a sealed credential and
   assert.equal(s.ctx.db.prepare('SELECT COUNT(*) AS n FROM credentials').get().n, 1);
 });
 
+test('redeploy works on a host migrated from v1, whose OS is stored as free text such as debian-12', async (t) => {
+  const { s, admin } = await setup(t);
+  const srv = await fakeLinux(s.port);
+  s.ctx.db.prepare("INSERT INTO hosts (id, hostname, kind, status, os, ip) VALUES ('h-deploy-1', 'old.example.test', 'agent', 'offline', 'debian-12', '127.0.0.1')").run();
+  const re = await admin('POST', '/api/hosts/h-deploy-1/redeploy', { port: srv.port, auth: { user: 'tester', password: PW, sudo_password: SUDO } });
+  assert.equal(re.status, 202, JSON.stringify(re.data));
+  const d = await finished(admin, re.data.deploy_id);
+  assert.equal(d.state, 'done', d.error);
+});
+
 test('remove agent: typed confirmation, online uninstall leaves the record, also_remove deletes it, offline uninstalls over ssh', async (t) => {
   const { s, admin, op } = await setup(t);
   const srv = await fakeLinux(s.port);
