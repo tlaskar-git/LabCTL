@@ -27,19 +27,47 @@ const tcpCheck = (host, port, ms = 5000) => new Promise(resolve => {
       : e.code === 'ENOTFOUND' || e.code === 'EAI_AGAIN' ? `cannot resolve ${host}` : e.code || e.message));
 });
 
+// Plain-words reason when no method we hold is one the host accepts, or when the secret is wrong.
+function authMessage(offered, t) {
+  const only = offered.filter(m => m !== 'none');
+  const canKey = only.includes('publickey');
+  const canPw = only.includes('password') || only.includes('keyboard-interactive');
+  if (!t.private_key && !canPw && canKey) {
+    return `${t.address} does not allow password sign-in (it accepts: ${only.join(', ')}). Use a private key: choose a saved SSH key credential or paste a key, and add its public key to ~/.ssh/authorized_keys for ${t.user} on the host. On a Mac, Remote Login must also be on.`;
+  }
+  if (t.private_key && !t.password && !canKey) {
+    return `${t.address} does not accept keys for ${t.user} (it accepts: ${only.join(', ')}). Use a password instead.`;
+  }
+  return `Authentication failed for ${t.user} on ${t.address} (the host accepts: ${only.join(', ') || 'nothing we can use'}). Check the user name and the password or key.`;
+}
+
 // Resolves { client, hostKey }. t.hostKey (a SHA256: fingerprint) is compared when set: a mismatch refuses the connection.
 function connect(t, { readyTimeout = 15000 } = {}) {
   return new Promise((resolve, reject) => {
     const client = new Client();
     let seen = null;
     let mismatch = false;
+    let offered = null; // sign-in methods the host says it accepts, learned from the first 'none' attempt
+    const tried = new Set();
+    client.on('keyboard-interactive', (_n, _i, _l, prompts, finish) => finish(prompts.map(() => t.password || '')));
     client.on('error', err => reject(new Error(mismatch
-      ? `Host key mismatch for ${t.address}: expected ${t.hostKey}, got ${seen}. Refusing to continue.` : explain(err, t, readyTimeout))));
+      ? `Host key mismatch for ${t.address}: expected ${t.hostKey}, got ${seen}. Refusing to continue.`
+      : err.level === 'client-authentication' && offered ? authMessage(offered, t) : explain(err, t, readyTimeout))));
     client.on('ready', () => resolve({ client, hostKey: seen }));
     client.connect({
       host: t.address, port: t.port, username: t.user, password: t.password || undefined,
       privateKey: t.private_key || undefined, passphrase: t.passphrase || undefined,
-      readyTimeout, hostHash: 'sha256',
+      readyTimeout, hostHash: 'sha256', tryKeyboard: !!t.password,
+      // macOS and hardened Linux often allow only publickey or keyboard-interactive: try what the host offers, in order.
+      authHandler: (left, _p, next) => {
+        if (left === null) return next('none');
+        offered = left;
+        const order = [...(t.private_key ? ['publickey'] : []), ...(t.password ? ['password', 'keyboard-interactive'] : [])];
+        const m = order.find(x => left.includes(x) && !tried.has(x));
+        if (!m) return next(false);
+        tried.add(m);
+        return next(m);
+      },
       hostVerifier: hash => { seen = fingerprint(hash); mismatch = !!t.hostKey && t.hostKey !== seen; return !mismatch; }
     });
   });
