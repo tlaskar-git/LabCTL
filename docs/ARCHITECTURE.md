@@ -169,6 +169,7 @@ Output never goes into the database. It is appended to `data/job-logs/<job_id>.l
 runs, the tail lives in `<job_id>.tail`; completion folds it into the `.log`.
 `GET /api/jobs/:id` returns the whole log as `result`, `GET /api/jobs` returns the last 4 KB, and
 `GET /api/jobs/:id/log` returns plain text.
+Job payloads (list, detail and the per-host rows of a job group) carry `hostname` (the real name) and `host_name` (the display name, else the hostname) for screens.
 
 Typed v1 jobs (`linux_update`, `docker_update`, `backup`, `reboot`, `list_crons`, `custom_command`,
 `service_control`, `disk_cleanup`, `file_browse`, `windows_update`, `autologin`, `disable_autologin`,
@@ -305,8 +306,8 @@ networks:
 
 | Route (admin only) | Purpose |
 |---|---|
-| `GET /api/updates/check` | Latest GitHub release, cached 15 minutes (`?refresh=1` skips the cache). |
-| `POST /api/updates/apply` | `{confirm:"UPDATE", version?}`. Calls the sidecar. |
+| `GET /api/updates/check` | Latest GitHub release, cached 15 minutes (`?refresh=1` skips the cache). Always 200 with `{current, state, message, latest, release, newer, retry_after?, update_mode, git_repo, git_ref, updater_configured}`. `state` is `ok`, `no_release` (GitHub answers 404 on `/releases/latest` until a full release exists), `github_unreachable` or `rate_limited`. Only `ok` and `no_release` are cached. `LABCTL_GITHUB_API_BASE` replaces `https://api.github.com` (tests and fakes only). |
+| `POST /api/updates/apply` | `{confirm:"UPDATE", version?}`. Calls the sidecar. In image mode it answers 409 when no release exists and 503 when the release is unknown. Updater errors pass through with their own text. |
 | `GET /api/updates/status` | Sidecar progress and steps. |
 | `PUT /api/updates/mode` | `{mode:"image"\|"git", git_repo?, git_ref?}`, stored in `update_mode`, `update_git_repo`, `update_git_ref`. |
 | `GET /api/updates/agents` | Agents older than the bundled agent. |

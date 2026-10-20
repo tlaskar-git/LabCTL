@@ -5,8 +5,17 @@ import { JOB_TYPES } from '../job-types.js';
 import { openJobDrawer } from '../job-drawer.js';
 import { fmtDuration } from '../components/job-tiles.js';
 import { authHeaders } from '../components/terminal-text.js';
+import { KitIcons, OsIcon, SectionHeader, hostName } from '../components/ui-kit.js';
 
 const OPEN = ['pending', 'sent', 'running', 'waiting'];
+// Action tiles grouped by what they do. '_backup_chain' is the Proxmox backup and reboot chain.
+const CATEGORIES = [
+  ['Updates', ['linux_update', 'windows_update', 'docker_update']],
+  ['Power and sign-in', ['reboot', 'autologin', 'disable_autologin']],
+  ['Maintenance', ['backup', '_backup_chain', 'disk_cleanup', 'service_control']],
+  ['Inspect and run', ['custom_command', 'list_crons', 'file_browse']],
+];
+const OS_LABEL = { linux: 'Linux', windows: 'Windows' };
 const TAIL = 16384;
 const TRACKED_KEY = 'labctl.actions.tracked';
 const bytesText = n => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : n >= 1024 ? `${(n / 1024).toFixed(1)} KB` : `${n} B`);
@@ -63,7 +72,7 @@ function JobCard({ job, onCancel }) {
     <div style=${{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
       <${StatusBadge} status=${job.status}/>
       <span style=${{ fontFamily: 'Geist Mono, monospace', fontSize: 12 }}>${job.type}</span>
-      <span style=${{ fontSize: 11, color: 'var(--text-secondary)' }}>${job.hostname}</span>
+      <span style=${{ fontSize: 11, color: 'var(--text-secondary)' }}>${job.host_name || job.hostname}</span>
       <span style=${{ fontSize: 11, color: 'var(--text-dim)' }}>
         ${fmtDuration(elapsed)} · ${bytesText(job.bytes_received || 0)} · exit ${job.exit_code ?? '-'}
       </span>
@@ -165,20 +174,14 @@ export default function ActionsPage({ hosts, addToast }) {
   });
 
   const renderHostChip = (host) => (
-    html`<div key=${host.id}
-      class="checkbox-row"
-      onClick=${() => toggleHost(host.id)}
-      style=${{
-        background: selectedHosts.includes(host.id) ? 'rgba(59,130,246,0.1)' : 'var(--bg-input)',
-        border: `1px solid ${selectedHosts.includes(host.id) ? 'var(--accent)' : 'var(--border)'}`,
-        borderRadius: 6, padding: '6px 10px', fontSize: 12
-      }}>
-      <div class=${`checkbox ${selectedHosts.includes(host.id) ? 'checked' : ''}`}>
-        ${selectedHosts.includes(host.id) && html`<span style=${{ color: 'white', fontSize: 10 }}>✓</span>`}
-      </div>
-      <span>${host.hostname}</span>
-      <${StatusBadge} status=${host.online ? 'online' : 'offline'}/>
-    </div>`
+    html`<button type="button" key=${host.id} class="host-pick" aria-pressed=${selectedHosts.includes(host.id) ? 'true' : 'false'}
+      onClick=${() => toggleHost(host.id)} title=${host.online ? 'Online' : 'Offline'}>
+      <span class="host-pick-box" aria-hidden="true">${selectedHosts.includes(host.id) && html`<${KitIcons.Check}/>`}</span>
+      <span class=${`attn-dot ${host.online ? 'ok' : 'bad'}`} aria-hidden="true"/>
+      <${OsIcon} host=${host} size=${16}/>
+      <span>${hostName(host)}</span>
+      <span class="sr-only">${host.online ? 'online' : 'offline'}</span>
+    </button>`
   );
 
   const submitJob = async (jobType) => {
@@ -221,7 +224,7 @@ export default function ActionsPage({ hosts, addToast }) {
     });
 
     // Add to modal jobs (shown inside the modal)
-    const newJobs = res.map(j => ({ ...j, type: jobType, status: 'pending', result: '', error: '', hostname: hosts.find(h => h.id === j.host_id)?.hostname || j.host_id }));
+    const newJobs = res.map(j => ({ ...j, type: jobType, status: 'pending', result: '', error: '', hostname: hostName(hosts.find(h => h.id === j.host_id)) || j.host_id }));
     setModalJobs(prev => [...newJobs, ...prev]);
     setJobParams({});
     if (res.length) openJobDrawer(res.length === 1 ? res[0].id : res[0].group_id); // live output, or the host grid for several hosts
@@ -238,7 +241,7 @@ export default function ActionsPage({ hosts, addToast }) {
           reboot_after: jobParams.reboot_after || false
         }
       });
-      res.forEach(j => newJobs.push({ ...j, type: 'backup', status: 'pending', result: '', error: '', hostname: hosts.find(h => h.id === j.host_id)?.hostname || j.host_id }));
+      res.forEach(j => newJobs.push({ ...j, type: 'backup', status: 'pending', result: '', error: '', hostname: hostName(hosts.find(h => h.id === j.host_id)) || j.host_id }));
     }
     setModalJobs(prev => [...newJobs, ...prev]);
     setJobParams({});
@@ -250,96 +253,77 @@ export default function ActionsPage({ hosts, addToast }) {
       <div class="page-header">
         <div>
           <div class="page-title">Actions</div>
-          <div class="page-desc">Run tasks across your hosts</div>
+          <div class="page-desc">Pick hosts, then pick a task.</div>
         </div>
       </div>
 
-      
-      <div class="card">
-        <div class="card-header">
-          <span class="card-title">Select Hosts (${selectedHosts.length}/${hosts.length})</span>
-          <div class="btn-group">
-            <button class="btn btn-sm" onClick=${selectAll}>All</button>
-            <button class="btn btn-sm" onClick=${selectNone}>None</button>
-          </div>
-        </div>
+      <section class="card" aria-labelledby="pick-h">
+        <${SectionHeader} id="pick-h" title="Hosts" count=${`${selectedHosts.length} of ${hosts.length} selected`} right=${html`<div class="btn-group">
+            <button class="btn btn-sm" onClick=${selectAll}>Select all</button>
+            <button class="btn btn-sm" onClick=${selectNone} disabled=${!selectedHosts.length}>Clear</button>
+          </div>`}/>
 
         ${groups.map(group => {
           const groupHosts = grouped[group.id] || [];
           if (groupHosts.length === 0) return null;
           const allSelected = groupHosts.every(h => selectedHosts.includes(h.id));
           return (
-            html`<div key=${group.id} style=${{ marginBottom: 12 }}>
-              <div style=${{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, cursor: 'pointer' }}
-                onClick=${() => selectGroup(group.id)}>
-                <span style=${{ width: 10, height: 10, borderRadius: 2, background: group.color, flexShrink: 0 }}/>
-                <span style=${{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                  ${group.name}
-                </span>
-                <span style=${{ fontSize: 10, color: allSelected ? 'var(--accent)' : 'var(--text-dim)' }}>
-                  ${allSelected ? '(all selected)' : `(click to ${allSelected ? 'deselect' : 'select'} all)`}
-                </span>
-              </div>
-              <div style=${{ display: 'flex', flexWrap: 'wrap', gap: 8, paddingLeft: 18 }}>
-                ${groupHosts.map(renderHostChip)}
-              </div>
+            html`<div key=${group.id} class="pick-group">
+              <button type="button" class="pick-group-head" aria-pressed=${allSelected ? 'true' : 'false'} onClick=${() => selectGroup(group.id)}
+                title=${allSelected ? 'Clear this group' : 'Select this group'}>
+                <span class="pick-swatch" style=${{ background: group.color }}/>
+                ${group.name}
+                <span class="muted">${groupHosts.length}</span>
+              </button>
+              <div class="pick-hosts">${groupHosts.map(renderHostChip)}</div>
             </div>`
           );
         })}
 
         ${ungrouped.length > 0 && (
-          html`<div style=${{ marginBottom: 8 }}>
-            ${groups.length > 0 && (
-              html`<div style=${{ marginBottom: 6 }}>
-                <span style=${{ fontSize: 11, fontWeight: 700, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                  Ungrouped
-                </span>
-              </div>`
-            )}
-            <div style=${{ display: 'flex', flexWrap: 'wrap', gap: 8, paddingLeft: groups.length > 0 ? 18 : 0 }}>
-              ${ungrouped.map(renderHostChip)}
-            </div>
+          html`<div class="pick-group">
+            ${groups.length > 0 && html`<div class="pick-group-head" style=${{ cursor: 'default' }}>Ungrouped <span class="muted">${ungrouped.length}</span></div>`}
+            <div class="pick-hosts">${ungrouped.map(renderHostChip)}</div>
           </div>`
         )}
-      </div>
+        ${hosts.length === 0 && html`<p class="hint">No hosts yet. <a href="#/add-host">Add a host</a> first.</p>`}
+      </section>
 
-      
       ${(() => {
         const selHosts = hosts.filter(h => selectedHosts.includes(h.id));
         const hasWindows = selHosts.some(h => (h.os || '').toLowerCase().includes('windows'));
         const hasLinux = selHosts.some(h => !(h.os || '').toLowerCase().includes('windows'));
         const noSelection = selHosts.length === 0;
-        return (
-          html`<div class="actions-grid">
-            ${Object.entries(JOB_TYPES).map(([key, meta]) => {
-              const show = noSelection || meta.os === 'all' ||
-                (meta.os === 'windows' && hasWindows) ||
-                (meta.os === 'linux' && hasLinux);
-              if (!show) return null;
-              const Icon = meta.icon;
-              return (
-                html`<div key=${key} class="action-tile" onClick=${() => {
-                  if (selectedHosts.length === 0) { addToast('Select at least one host.', 'error'); return; }
-                  if (meta.os === 'windows' && !hasWindows) { addToast('No Windows hosts selected.', 'error'); return; }
-                  if (meta.os === 'linux' && !hasLinux) { addToast('No Linux hosts selected.', 'error'); return; }
-                  setShowJobModal(key);
-                }}>
-                  <${Icon}/>
-                  <div class="action-tile-label">${meta.label}</div>
-                  <div class="action-tile-desc">${meta.os === 'all' ? 'All OS' : meta.os}</div>
-                </div>`
-              );
-            })}
-            <div class="action-tile" onClick=${() => setShowJobModal('_backup_chain')}>
-              <${Icons.HardDrive}/>
-              <div class="action-tile-label">Backup + Reboot Chain</div>
-              <div class="action-tile-desc">Proxmox backup, reboot, autologin</div>
-            </div>
-          </div>`
-        );
+        const tile = key => {
+          if (key === '_backup_chain') {
+            return html`<button type="button" key=${key} class="action-tile" onClick=${() => setShowJobModal('_backup_chain')}>
+              <${Icons.HardDrive}/><span class="action-tile-label">Backup and reboot chain</span><span class="action-tile-desc">Proxmox</span></button>`;
+          }
+          const meta = JOB_TYPES[key];
+          const show = meta && (noSelection || meta.os === 'all' || (meta.os === 'windows' && hasWindows) || (meta.os === 'linux' && hasLinux));
+          if (!show) return null;
+          const Icon = meta.icon;
+          return html`<button type="button" key=${key} class="action-tile" onClick=${() => {
+              if (selectedHosts.length === 0) { addToast('Select at least one host.', 'error'); return; }
+              if (meta.os === 'windows' && !hasWindows) { addToast('No Windows hosts selected.', 'error'); return; }
+              if (meta.os === 'linux' && !hasLinux) { addToast('No Linux hosts selected.', 'error'); return; }
+              setShowJobModal(key);
+            }}>
+            <${Icon}/>
+            <span class="action-tile-label">${meta.label}</span>
+            ${meta.os !== 'all' && html`<span class="action-tile-desc">${OS_LABEL[meta.os] || meta.os}</span>`}
+          </button>`;
+        };
+        return html`<div class="page-stack" style=${{ marginBottom: 24 }}>
+          ${[...CATEGORIES, ['Other', Object.keys(JOB_TYPES).filter(k => !CATEGORIES.some(c => c[1].includes(k)))]].map(([name, keys]) => {
+            const tiles = keys.map(tile).filter(Boolean);
+            return tiles.length > 0 && html`<section key=${name} aria-label=${name}>
+              <div class="day-head">${name}</div>
+              <div class="actions-grid" style=${{ marginBottom: 0 }}>${tiles}</div>
+            </section>`;
+          })}
+        </div>`;
       })()}
-
-      
       ${showJobModal && showJobModal !== '_backup_chain' && (
         html`<${Modal} title=${`Run: ${JOB_TYPES[showJobModal]?.label}`} onClose=${closeModal}>
           <div style=${{ marginBottom: 16, color: 'var(--text-dim)', fontSize: 13 }}>

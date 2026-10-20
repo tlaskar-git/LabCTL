@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'preact/hooks';
 import { api } from '../api.js';
 import { html, Icons, Modal } from '../ui.js';
+import { Chip, EmptyState, KitIcons, SectionHeader, Skeleton, absTime, relTime, hostName, nameFor } from '../components/ui-kit.js';
 import { JOB_TYPES } from '../job-types.js';
 import { TypedConfirm } from './patching.js';
 
-const when = iso => (iso ? new Date(iso).toLocaleString() : '-');
 
 // ── Built-in schedules: one click on, time editable, last and next run ─────
 function BuiltinSchedules({ addToast }) {
@@ -26,36 +26,41 @@ function BuiltinSchedules({ addToast }) {
   const toggle = s => (s.enabled ? call(s.key, 'disable', {})
     : s.guarded ? setAsk({ key: s.key, name: s.name, cron: draft[s.key] || s.cron }) : call(s.key, 'enable', { cron: draft[s.key] || s.cron }));
 
-  return html`<div class="card" style=${{ marginBottom: 20 }}>
-    <div class="card-header"><div class="card-title">Built-in schedules</div></div>
-    <div class="page-desc" style=${{ marginBottom: 10 }}>Switch one on and it runs by itself. Hosts in a maintenance window are skipped. Times use the server time zone.</div>
-    <div class="table-wrap"><table>
-      <thead><tr><th>On</th><th>Schedule</th><th>Cron</th><th>Last run</th><th>Next run</th><th></th></tr></thead>
-      <tbody>${list.map(s => html`<tr key=${s.key}>
-        <td><div role="switch" aria-checked=${s.enabled} aria-label=${`Enable ${s.name}`} tabindex="0" class=${`toggle ${s.enabled ? 'active' : ''}`} onClick=${() => toggle(s)} onKeyDown=${e => e.key === 'Enter' && toggle(s)}/></td>
-        <td><b>${s.name}</b><div class="page-desc" style=${{ fontSize: 12, maxWidth: 520 }}>${s.description}</div>
-          ${s.key === 'cert_expiry' && !s.domains && html`<div class="page-desc" style=${{ color: 'var(--yellow)', fontSize: 12 }}>Set cert_domains under Settings first.</div>`}</td>
-        <td><div style=${{ display: 'flex', gap: 6 }}>
-          <input class="input" aria-label=${`Cron for ${s.name}`} style=${{ width: 130, fontFamily: 'monospace', fontSize: 12 }} value=${draft[s.key] ?? s.cron} onInput=${e => setDraft(d => ({ ...d, [s.key]: e.target.value }))}/>
-          ${draft[s.key] !== undefined && draft[s.key] !== s.cron && html`<button class="btn btn-sm" onClick=${() => call(s.key, '', { cron: draft[s.key] }, 'PUT')}>Save</button>`}
-        </div></td>
-        <td style=${{ fontSize: 12 }}>${when(s.last_run)}${s.last_status ? html`<div class=${`badge badge-${s.last_status === 'ok' ? 'completed' : s.last_status === 'error' ? 'failed' : 'pending'}`} title=${s.last_detail || ''}>${s.last_status}</div>` : ''}</td>
-        <td style=${{ fontSize: 12 }}>${s.enabled ? when(s.next_run) : '-'}</td>
-        <td>${s.key !== 'patch_weekly' && html`<button class="btn btn-sm" onClick=${() => call(s.key, 'run', {})}><${Icons.Play}/> Run now</button>`}</td>
-      </tr>`)}</tbody></table></div>
+  return html`<section aria-labelledby="builtin-h">
+    <${SectionHeader} id="builtin-h" title="Built-in schedules" count=${list.filter(s => s.enabled).length ? `${list.filter(s => s.enabled).length} on` : null}/>
+    <p class="hint" style=${{ margin: '-4px 0 10px' }}>Switch one on and it runs by itself. Hosts in a maintenance window are skipped. Times use the server time zone.</p>
+    ${!list.length ? html`<${Skeleton} rows=${3}/>` : html`<div class="rows">${list.map(s => html`<div class="row" key=${s.key}>
+      <button type="button" role="switch" aria-checked=${s.enabled ? 'true' : 'false'} aria-label=${`Enable ${s.name}`} class=${`toggle ${s.enabled ? 'active' : ''}`}
+        style=${{ border: 0 }} onClick=${() => toggle(s)}/>
+      <div class="row-main">
+        <div class="row-title">${s.name}</div>
+        <div class="row-sub" title=${s.description}>${s.description}</div>
+        ${s.key === 'cert_expiry' && !s.domains && html`<div class="row-sub" style=${{ color: 'var(--yellow)' }}>Set cert_domains under Settings first.</div>`}
+        <div class="sched-meta">
+          ${s.last_status && html`<${Chip} status=${s.last_status} title=${s.last_detail || ''} dot>${s.last_status}<//>`}
+          <span class="row-meta" title=${absTime(s.last_run)}>Last ${relTime(s.last_run)}</span>
+          ${s.enabled && s.next_run && html`<span class="row-meta" title=${absTime(s.next_run)}>Next ${relTime(s.next_run)}</span>`}
+        </div>
+      </div>
+      <div class="row-actions">
+        <input class="input mono cron-input" aria-label=${`Cron for ${s.name}`} value=${draft[s.key] ?? s.cron} onInput=${e => setDraft(d => ({ ...d, [s.key]: e.target.value }))}/>
+        ${draft[s.key] !== undefined && draft[s.key] !== s.cron && html`<button class="btn btn-sm" onClick=${() => call(s.key, '', { cron: draft[s.key] }, 'PUT')}>Save</button>`}
+        ${s.key !== 'patch_weekly' && html`<button class="btn btn-sm btn-icon" aria-label=${`Run ${s.name} now`} title="Run now" onClick=${() => call(s.key, 'run', {})}><${Icons.Play}/></button>`}
+      </div>
+    </div>`)}</div>`}
     ${ask && html`<${TypedConfirm} title="Enable weekly patching" word="patch_weekly"
       action="This creates three ring policies and enables them. They can reboot hosts. Hosts without ring tags are not touched."
       onClose=${() => setAsk(null)} onConfirm=${confirm => { call(ask.key, 'enable', { cron: ask.cron, confirm }); setAsk(null); }}/>`}
-  </div>`;
+  </section>`;
 }
 
 // ── Schedules Page ────────────────────────────────────────
 export default function SchedulesPage({ hosts, addToast }) {
-  const [schedules, setSchedules] = useState([]);
+  const [schedules, setSchedules] = useState(null);
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ name: '', host_id: '', type: 'backup', cron: '0 1 * * 0', params: {} });
 
-  const load = async () => { setSchedules(await api('/api/schedules')); };
+  const load = () => api('/api/schedules').then(setSchedules, e => { setSchedules(x => x || []); addToast(e.message, 'error'); });
   useEffect(() => { load(); }, []);
 
   const addSchedule = async () => {
@@ -75,8 +80,9 @@ export default function SchedulesPage({ hosts, addToast }) {
     load();
   };
 
-  const deleteSchedule = async (id) => {
-    await api(`/api/schedules/${id}`, { method: 'DELETE' });
+  const deleteSchedule = async (s) => {
+    if (!window.confirm(`Delete the schedule ${s.name}?`)) return;
+    await api(`/api/schedules/${s.id}`, { method: 'DELETE' });
     addToast('Schedule deleted');
     load();
   };
@@ -85,45 +91,33 @@ export default function SchedulesPage({ hosts, addToast }) {
     html`<div>
       <div class="page-header">
         <div>
-          <div class="page-title">Crons / Scheduled Tasks</div>
-          <div class="page-desc">Cron-based job scheduling</div>
+          <div class="page-title">Schedules</div>
+          <div class="page-desc">Jobs that run by themselves on a cron timetable.</div>
         </div>
-        <button class="btn btn-primary" onClick=${() => setShowAdd(true)}>+ New Schedule</button>
+        <button class="btn btn-primary" onClick=${() => setShowAdd(true)}><${KitIcons.Plus}/> New schedule</button>
       </div>
 
+      <div class="page-stack">
       <${BuiltinSchedules} addToast=${addToast}/>
 
-      <div class="table-wrap">
-        <table>
-          <thead><tr>
-            <th>Enabled</th><th>Name</th><th>Type</th><th>Host</th><th>Cron</th><th>Next Run</th><th>Actions</th>
-          </tr></thead>
-          <tbody>
-            ${schedules.map(s => (
-              html`<tr key=${s.id}>
-                <td>
-                  <div class=${`toggle ${s.enabled ? 'active' : ''}`}
-                    onClick=${() => toggleSchedule(s.id, s.enabled)}/>
-                </td>
-                <td style=${{ fontWeight: 600 }}>${s.name}</td>
-                <td><span class="mono" style=${{ fontSize: 12 }}>${s.type}</span></td>
-                <td>${s.hostname || s.host_id?.slice(0, 8)}</td>
-                <td><code style=${{ fontSize: 12, color: 'var(--accent)' }}>${s.cron}</code></td>
-                <td style=${{ fontSize: 12, color: 'var(--text-dim)' }}>${s.next_run?.slice(0, 19)}</td>
-                <td>
-                  <button class="btn btn-sm btn-danger" onClick=${() => deleteSchedule(s.id)}>
-                    <${Icons.Trash}/>
-                  </button>
-                </td>
-              </tr>`
-            ))}
-            ${schedules.length === 0 && (
-              html`<tr><td colSpan=${7} style=${{ textAlign: 'center', padding: 30, color: 'var(--text-dim)' }}>
-                No schedules. Create one to automate jobs.
-              </td></tr>`
-            )}
-          </tbody>
-        </table>
+      <section aria-labelledby="custom-h">
+        <${SectionHeader} id="custom-h" title="Your schedules" count=${schedules ? schedules.length : null}/>
+        ${!schedules ? html`<${Skeleton} rows=${2}/>` : !schedules.length
+          ? html`<${EmptyState} icon="Clock" title="No schedules yet" text="Run a backup, an update or a reboot on a timetable."
+              action=${html`<button class="btn btn-primary" onClick=${() => setShowAdd(true)}><${KitIcons.Plus}/> New schedule</button>`}/>`
+          : html`<div class="rows">${schedules.map(s => html`<div class="row" key=${s.id}>
+              <button type="button" role="switch" aria-checked=${s.enabled ? 'true' : 'false'} aria-label=${`Enable ${s.name}`}
+                class=${`toggle ${s.enabled ? 'active' : ''}`} style=${{ border: 0 }} onClick=${() => toggleSchedule(s.id, s.enabled)}/>
+              <div class="row-main">
+                <div class="row-title">${s.name}</div>
+                <div class="row-sub">${JOB_TYPES[s.type]?.label || s.type} on ${nameFor(hosts, s.host_id, s.hostname || s.host_id?.slice(0, 8))} · <code>${s.cron}</code></div>
+              </div>
+              <span class="row-meta" title=${absTime(s.next_run)}>${s.enabled && s.next_run ? `Next ${relTime(s.next_run)}` : 'Off'}</span>
+              <div class="row-actions">
+                <button class="btn btn-sm btn-icon" aria-label=${`Delete ${s.name}`} title="Delete" onClick=${() => deleteSchedule(s)}><${Icons.Trash}/></button>
+              </div>
+            </div>`)}</div>`}
+      </section>
       </div>
 
       ${showAdd && (
@@ -141,7 +135,7 @@ export default function SchedulesPage({ hosts, addToast }) {
               <select class="select input" value=${form.host_id}
                 onChange=${e => setForm(f => ({ ...f, host_id: e.target.value }))}>
                 <option value="">Select host...</option>
-                ${hosts.map(h => html`<option key=${h.id} value=${h.id}>${h.hostname}</option>`)}
+                ${hosts.map(h => html`<option key=${h.id} value=${h.id}>${hostName(h)}</option>`)}
               </select>
             </div>
             <div class="form-group">

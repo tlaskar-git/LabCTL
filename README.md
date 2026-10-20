@@ -123,9 +123,10 @@ Put the server behind HTTPS before you enrol hosts. Then open **Settings** and s
 
 ### From the UI
 
-1. Open **Settings** and find **LabCTL updates**.
-2. Check for a newer release. LabCTL reads the latest GitHub release and caches the answer for 15 minutes.
-3. Choose **Update**. Type `UPDATE` to confirm.
+1. Open **Updates**.
+2. LabCTL reads the latest GitHub release and caches the answer for 15 minutes. **Check now** asks again. "No release has been published yet", "GitHub cannot be reached" (with the reason and **Retry**) and "GitHub rate limit reached" (with the reset time) are normal states, not errors.
+3. Choose the update method: **Release image** (needs a published release) or **Build from source (git)** with a repository and a branch or tag, for example `feature/labctl-v2`.
+4. Choose **Update now** and type `UPDATE` to confirm. The step list updates live, the page reconnects while LabCTL restarts, and a failure shows the updater's own error text.
 
 The `labctl-updater` sidecar records the current image, pulls the new tag, takes a backup, recreates the container and waits up to 90 seconds for `/api/health` to report the new version. If it does not, the sidecar recreates the container from the previous image and reports `rolled_back`.
 
@@ -161,7 +162,7 @@ Run both commands through your launcher. The server takes a backup only through 
 
 | Situation | Action |
 | --- | --- |
-| The update failed the health check | Nothing. The sidecar already rolled back. Check the step list on the LabCTL updates card. |
+| The update failed the health check | Nothing. The sidecar already rolled back. Check the step list on the **Updates** page. |
 | The new version runs but misbehaves | Set `LABCTL_TAG` to the previous tag (for example `v1.9.0`) and run the pull and up commands again. |
 | The database needs to go back too | Stop LabCTL, restore a backup (see below) and start the previous tag. |
 
@@ -201,15 +202,15 @@ Usage: `node src/backup.js restore <backup file> [--data-dir <dir>] --force`. `s
 
 ### Config export and import
 
-The **Backup** page also exports configuration as JSON: settings, groups, tags, scripts, host properties, channels, alert rules, schedules, runbooks, maintenance windows, patch policies and built-in schedules. It never exports credentials, tokens, channel secrets, the GitHub token or password hashes.
+The **Backup** page also exports configuration as JSON: settings, groups, tags, scripts, host properties (including display name and icon), channels, alert rules, schedules, runbooks, maintenance windows, patch policies and built-in schedules. It never exports credentials, tokens, channel secrets, the GitHub token or password hashes.
 
 Import is a dry run by default and shows the plan. A real import needs the word `IMPORT`. It never creates or deletes hosts, never changes an existing user and skips users unless you choose to include them. Modes are `merge` and `replace_sections`.
 
 ## Enrol agents
 
-Agents authenticate with an enrolment token. Open **Tokens**.
+Agents authenticate with an enrolment token. Open **Agents**. The install command for Linux, macOS and Windows sits at the top, and administrators manage tokens in the **Enrolment tokens** list below it.
 
-- **Create** returns the value once. LabCTL stores only the SHA-256 hash.
+- **Create** returns the value once, with a copy button, and fills it into the install command. LabCTL stores only the SHA-256 hash.
 - **Rotate** issues a new value and disconnects the agents that use the old one.
 - **Revoke** disconnects the agents that use it and refuses new connections.
 

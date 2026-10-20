@@ -1,5 +1,6 @@
 // LabCTL and agent updates (A11). All routes are admin only.
-//   GET  /api/updates/check            GitHub releases check, cached 15 minutes (?refresh=1 skips the cache)
+//   GET  /api/updates/check            GitHub release check, cached 15 minutes (?refresh=1 skips the cache). Always 200 with
+//                                      state ok | no_release | github_unreachable | rate_limited (retry_after) and a message
 //   POST /api/updates/apply            {confirm:"UPDATE", version?} sends the request to the labctl-updater sidecar
 //   GET  /api/updates/status           sidecar progress
 //   PUT  /api/updates/mode             {mode:"image"|"git", git_repo?, git_ref?} stored in update_mode, update_git_repo, update_git_ref
@@ -13,8 +14,11 @@ const path = require('path');
 const crypto = require('crypto');
 const { createUpdaterClient } = require('../updater-client');
 
-const RELEASES_URL = 'https://api.github.com/repos/tlaskar-git/LabCTL/releases/latest';
+// LABCTL_GITHUB_API_BASE points the release check at a local fake GitHub in tests; production uses api.github.com.
+const RELEASES_PATH = '/repos/tlaskar-git/LabCTL/releases';
+const githubBase = () => String(process.env.LABCTL_GITHUB_API_BASE || 'https://api.github.com').replace(/\/+$/, '');
 const CACHE_MS = 15 * 60 * 1000;
+const NO_RELEASE = 'No release has been published yet. Merge the pull request and push a version tag (for example v2.0.1) to build and publish the image. Until then, use Build from source (git).';
 // Git mode allowlist (same rule as the updater, which checks again): https, host github.com, owner/name only.
 const GIT_REPO_RE = /^https:\/\/github\.com\/[A-Za-z0-9_][A-Za-z0-9_.-]*\/[A-Za-z0-9_][A-Za-z0-9_.-]*$/;
 const GIT_REF_RE = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,99}$/;
@@ -46,12 +50,34 @@ module.exports = (app, ctx) => {
 
   const mode = () => (ctx.settings.get('update_mode') === 'git' ? 'git' : 'image');
 
+  // Returns { state: 'ok'|'no_release'|'github_unreachable'|'rate_limited', message, release, retry_after? }.
+  // A missing release, an unreachable GitHub and a rate limit are normal states, not errors. Only ok and no_release are cached.
   async function latestRelease(force) {
     if (!force && cache && Date.now() - cache.at < CACHE_MS) return cache.data;
-    const r = await doFetch(RELEASES_URL, { headers: { accept: 'application/vnd.github+json', 'user-agent': 'labctl' }, signal: AbortSignal.timeout(10000) });
-    if (!r.ok) throw new Error(`GitHub returned ${r.status}`);
-    const j = await r.json();
-    const data = { tag: String(j.tag_name || ''), notes: String(j.body || ''), url: j.html_url || null, published_at: j.published_at || null, checked_at: new Date().toISOString() };
+    const get = p => doFetch(githubBase() + RELEASES_PATH + p, { headers: { accept: 'application/vnd.github+json', 'user-agent': 'labctl' }, signal: AbortSignal.timeout(10000) });
+    const checked_at = new Date().toISOString();
+    let r;
+    try { r = await get('/latest'); } catch (err) {
+      return { state: 'github_unreachable', message: `GitHub cannot be reached (${err.cause?.code || err.message}).`, release: null, checked_at };
+    }
+    const header = k => (r.headers && typeof r.headers.get === 'function' ? r.headers.get(k) : null);
+    if ((r.status === 403 || r.status === 429) && header('x-ratelimit-remaining') === '0') {
+      const reset = Number(header('x-ratelimit-reset'));
+      const retry_after = Number.isFinite(reset) && reset > 0 ? new Date(reset * 1000).toISOString() : null;
+      return { state: 'rate_limited', message: 'GitHub rate limit reached for this server.', release: null, retry_after, checked_at };
+    }
+    let data;
+    if (r.status === 404) {
+      // GitHub answers 404 on /latest when no full release exists. The list tells drafts and pre-releases apart.
+      const list = await get('?per_page=5').then(x => (x.ok ? x.json() : []), () => []);
+      data = { state: 'no_release', message: Array.isArray(list) && list.length ? 'Only drafts or pre-releases exist. No full release has been published yet.' : NO_RELEASE, release: null, checked_at };
+    } else if (!r.ok) {
+      return { state: 'github_unreachable', message: `GitHub returned HTTP ${r.status}.`, release: null, checked_at };
+    } else {
+      const j = await r.json();
+      data = { state: 'ok', message: '', checked_at,
+        release: { tag: String(j.tag_name || ''), notes: String(j.body || ''), url: j.html_url || null, published_at: j.published_at || null } };
+    }
     cache = { at: Date.now(), data };
     return data;
   }
@@ -59,15 +85,15 @@ module.exports = (app, ctx) => {
   app.get('/api/updates/check', admin, async (req, res) => {
     try {
       const rel = await latestRelease(req.query.refresh === '1');
-      res.json({ current: ctx.version, latest: rel.tag.replace(/^v/, ''), tag: rel.tag, notes: rel.notes, url: rel.url,
-        published_at: rel.published_at, checked_at: rel.checked_at, newer: compareVersions(rel.tag, ctx.version) > 0,
-        update_mode: mode(), updater_configured: client.configured() });
-    } catch (err) { res.status(502).json({ error: `Update check failed: ${err.message}` }); }
+      const tag = rel.release?.tag || null;
+      res.json({ current: ctx.version, ...rel, latest: tag ? tag.replace(/^v/, '') : null, newer: !!tag && compareVersions(tag, ctx.version) > 0,
+        update_mode: mode(), git_repo: gitRepo(), git_ref: gitRef(), updater_configured: client.configured() });
+    } catch (err) { res.status(500).json({ error: `Update check failed: ${err.message}` }); }
   });
 
   app.get('/api/updates/status', admin, async (req, res) => {
     if (!client.configured()) return res.json({ configured: false, state: 'idle', steps: [] });
-    try { res.json({ configured: true, ...(await client.status()) }); } catch (err) { res.status(502).json({ error: `Updater unreachable: ${err.message}` }); }
+    try { res.json({ configured: true, ...(await client.status()) }); } catch (err) { res.status(502).json({ error: err.message }); }
   });
 
   // Settings update_git_repo (default tlaskar-git/LabCTL on GitHub) and update_git_ref (default main) feed git mode.
@@ -94,7 +120,13 @@ module.exports = (app, ctx) => {
         if (!validGitRepo(gitRepo()) || !validGitRef(gitRef())) return res.status(400).json({ error: 'update_git_repo or update_git_ref is not allowed' });
         out = await client.updateGit(gitRepo(), gitRef());
       } else {
-        const tag = req.body.version || (await latestRelease(false)).tag;
+        let tag = req.body.version;
+        if (!tag) {
+          const rel = await latestRelease(false);
+          if (rel.state === 'no_release') return res.status(409).json({ error: 'No release has been published yet, so there is no image to pull. Use Build from source (git), or publish a release first.' });
+          if (rel.state !== 'ok') return res.status(503).json({ error: `The latest release is unknown. ${rel.message}` });
+          tag = rel.release.tag;
+        }
         if (!/^v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?$/.test(tag)) return res.status(400).json({ error: 'version must look like v1.2.3' });
         out = await client.update(tag);
       }

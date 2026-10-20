@@ -29,6 +29,18 @@ test('every module in the pages manifest exists', async () => {
   }
 });
 
+test('no stub pages: Tokens lives inside Agents, and no page says it is not built', async () => {
+  const { pages } = await import(pathToFileURL(path.join(JS, 'pages', 'index.js')).href);
+  assert.ok(!pages.some(p => p.id === 'tokens'), 'the Tokens page entry must be gone');
+  assert.ok(!fs.existsSync(path.join(JS, 'pages', 'tokens.js')));
+  const agents = fs.readFileSync(path.join(JS, 'pages', 'agents.js'), 'utf8');
+  for (const route of ["'/api/tokens'", "'rotate'", "'revoke'"]) assert.ok(agents.includes(route), `agents.js must call ${route}`);
+  for (const f of walk(path.join(JS, 'pages')).filter(x => x.endsWith('.js'))) {
+    assert.ok(!/StubPage/.test(fs.readFileSync(f, 'utf8')), `${path.basename(f)} is a stub`);
+  }
+  assert.ok(!/#\/tokens/.test(fs.readFileSync(path.join(JS, 'palette.js'), 'utf8')));
+});
+
 test('host detail tab modules exist', () => {
   const src = fs.readFileSync(path.join(JS, 'pages', 'host-detail.js'), 'utf8');
   const files = [...src.matchAll(/import\('\.\/(host-tabs\/[\w-]+\.js)'\)/g)].map(m => m[1]);

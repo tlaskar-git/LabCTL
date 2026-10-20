@@ -37,7 +37,6 @@ export const pages = [
 
   { id: 'credentials', title: 'Credentials', icon: 'Key', group: 'Admin', roles: ALL, load: () => import('./credentials.js') },
   { id: 'agents', title: 'Agents', icon: 'Download', group: 'Admin', roles: ALL, load: () => import('./agents.js') },
-  { id: 'tokens', title: 'Tokens', icon: 'Key', group: 'Admin', roles: ADMIN, load: () => import('./tokens.js') },
   { id: 'blocklist', title: 'Blocklist', icon: 'Stop', group: 'Admin', roles: ADMIN, load: () => import('./blocklist.js') },
   { id: 'channels', title: 'Channels', icon: 'RefreshCw', group: 'Admin', roles: ADMIN, load: () => import('./channels.js') },
   { id: 'github', title: 'GitHub', icon: 'Terminal', group: 'Admin', roles: ADMIN, load: () => import('./github.js') },

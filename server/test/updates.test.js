@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const { startApp, login, api, wsOpen, waitFor } = require('./helpers');
 const { compareVersions } = require('../src/routes/updates');
 
-const json = (status, body) => ({ ok: status < 400, status, json: async () => body });
+const json = (status, body, headers = {}) => ({ ok: status < 400, status, json: async () => body, headers: new Map(Object.entries(headers)) });
 
 async function setup(t, fetchImpl) {
   process.env.LABCTL_UPDATER_SECRET = 'test-secret';
@@ -36,8 +36,10 @@ test('check: reads the GitHub release, caches for 15 minutes and flags newer', a
   assert.equal(r.data.current, s.ctx.version);
   assert.equal(r.data.latest, '9.9.9');
   assert.equal(r.data.newer, true);
-  assert.equal(r.data.notes, 'Notes <b>text</b>');
+  assert.equal(r.data.state, 'ok');
+  assert.equal(r.data.release.notes, 'Notes <b>text</b>');
   assert.equal(r.data.update_mode, 'image');
+  assert.deepEqual([r.data.git_repo, r.data.git_ref], ['https://github.com/tlaskar-git/LabCTL.git', 'main']);
   await admin('GET', '/api/updates/check');
   assert.equal(calls, 1);
   await admin('GET', '/api/updates/check?refresh=1');
@@ -45,10 +47,94 @@ test('check: reads the GitHub release, caches for 15 minutes and flags newer', a
   assert.equal((await operator('GET', '/api/updates/check')).status, 403);
 });
 
-test('check: a GitHub failure is a 502, not a crash', async (t) => {
-  const { admin } = await setup(t, async () => json(500, {}));
+test('check: no published release is a normal state, not an error', async (t) => {
+  const urls = [];
+  const { s, admin } = await setup(t, async (url) => { urls.push(url); return url.endsWith('/latest') ? json(404, { message: 'Not Found' }) : json(200, []); });
   const r = await admin('GET', '/api/updates/check');
+  assert.equal(r.status, 200);
+  assert.equal(r.data.state, 'no_release');
+  assert.equal(r.data.latest, null);
+  assert.equal(r.data.release, null);
+  assert.equal(r.data.newer, false);
+  assert.equal(r.data.current, s.ctx.version);
+  assert.match(r.data.message, /No release has been published yet/);
+  assert.deepEqual(urls, ['https://api.github.com/repos/tlaskar-git/LabCTL/releases/latest', 'https://api.github.com/repos/tlaskar-git/LabCTL/releases?per_page=5']);
+});
+
+test('check: only pre-releases in the list still counts as no release', async (t) => {
+  const { admin } = await setup(t, async (url) => (url.endsWith('/latest') ? json(404, {}) : json(200, [{ tag_name: 'v3.0.0-rc.1', prerelease: true }])));
+  const r = await admin('GET', '/api/updates/check');
+  assert.equal(r.data.state, 'no_release');
+  assert.match(r.data.message, /pre-releases/);
+});
+
+test('check: a network error or 5xx says GitHub cannot be reached, and is not cached', async (t) => {
+  let fail = true;
+  const { admin } = await setup(t, async () => {
+    if (fail) { const e = new TypeError('fetch failed'); e.cause = { code: 'ENOTFOUND' }; throw e; }
+    return json(502, {});
+  });
+  const r = await admin('GET', '/api/updates/check');
+  assert.equal(r.status, 200);
+  assert.equal(r.data.state, 'github_unreachable');
+  assert.match(r.data.message, /cannot be reached \(ENOTFOUND\)/);
+  fail = false;
+  const r2 = await admin('GET', '/api/updates/check');
+  assert.equal(r2.data.state, 'github_unreachable');
+  assert.match(r2.data.message, /HTTP 502/);
+});
+
+test('check: a rate limit reports when it resets', async (t) => {
+  const reset = Math.floor(Date.now() / 1000) + 600;
+  const { admin } = await setup(t, async () => json(403, { message: 'API rate limit exceeded' }, { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': String(reset) }));
+  const r = await admin('GET', '/api/updates/check');
+  assert.equal(r.status, 200);
+  assert.equal(r.data.state, 'rate_limited');
+  assert.equal(r.data.retry_after, new Date(reset * 1000).toISOString());
+});
+
+test('check: LABCTL_GITHUB_API_BASE replaces the GitHub address', async (t) => {
+  process.env.LABCTL_GITHUB_API_BASE = 'http://127.0.0.1:9/';
+  t.after(() => { delete process.env.LABCTL_GITHUB_API_BASE; });
+  const urls = [];
+  const { admin } = await setup(t, async (url) => { urls.push(url); return json(200, { tag_name: 'v1.0.0' }); });
+  await admin('GET', '/api/updates/check');
+  assert.deepEqual(urls, ['http://127.0.0.1:9/repos/tlaskar-git/LabCTL/releases/latest']);
+});
+
+test('apply in image mode without a release is a 409 with a clear message', async (t) => {
+  const seen = [];
+  const { admin } = await setup(t, async (url) => {
+    if (url.includes('api.github.com')) return url.endsWith('/latest') ? json(404, {}) : json(200, []);
+    seen.push(url); return json(202, { state: 'running', steps: [] });
+  });
+  const r = await admin('POST', '/api/updates/apply', { confirm: 'UPDATE' });
+  assert.equal(r.status, 409);
+  assert.match(r.data.error, /No release has been published yet/);
+  assert.equal(seen.length, 0);
+});
+
+test('apply in image mode while GitHub is unreachable is a 503, not a crash', async (t) => {
+  const { admin } = await setup(t, async (url) => { if (url.includes('api.github.com')) throw new TypeError('fetch failed'); return json(202, {}); });
+  const r = await admin('POST', '/api/updates/apply', { confirm: 'UPDATE' });
+  assert.equal(r.status, 503);
+  assert.match(r.data.error, /cannot be reached/);
+});
+
+test('apply surfaces the updater error text when the sidecar refuses or is down', async (t) => {
+  let down = false;
+  const { admin } = await setup(t, async () => {
+    if (down) throw new TypeError('fetch failed');
+    return json(409, { error: 'an update is already running' });
+  });
+  await admin('PUT', '/api/updates/mode', { mode: 'git' });
+  const busy = await admin('POST', '/api/updates/apply', { confirm: 'UPDATE' });
+  assert.equal(busy.status, 409);
+  assert.equal(busy.data.error, 'an update is already running');
+  down = true;
+  const r = await admin('POST', '/api/updates/apply', { confirm: 'UPDATE' });
   assert.equal(r.status, 502);
+  assert.match(r.data.error, /The updater cannot be reached/);
 });
 
 test('apply: admin only, typed confirmation required, then proxied with the shared secret', async (t) => {
@@ -99,6 +185,22 @@ test('git repo and ref are stored, validated against the allowlist, and sent to 
   assert.equal(ok.status, 200);
   assert.equal((await admin('POST', '/api/updates/apply', { confirm: 'UPDATE' })).status, 202);
   assert.deepEqual(bodies, [{ repo: 'https://github.com/example-org/labctl', ref: 'release/2.1' }]);
+  // A branch with a slash, as the Updates page sends it.
+  assert.equal((await admin('PUT', '/api/updates/mode', { mode: 'git', git_ref: 'feature/labctl-v2' })).status, 200);
+  assert.equal((await admin('POST', '/api/updates/apply', { confirm: 'UPDATE' })).status, 202);
+  assert.deepEqual(bodies[1], { repo: 'https://github.com/example-org/labctl', ref: 'feature/labctl-v2' });
+});
+
+test('apply in git mode re-checks stored values written around the mode route', async (t) => {
+  const seen = [];
+  const { s, admin } = await setup(t, async (url) => { seen.push(url); return json(202, { state: 'running', steps: [] }); });
+  await admin('PUT', '/api/updates/mode', { mode: 'git' });
+  s.ctx.settings.set('update_git_ref', '--upload-pack=x');
+  assert.equal((await admin('POST', '/api/updates/apply', { confirm: 'UPDATE' })).status, 400);
+  s.ctx.settings.set('update_git_ref', 'main');
+  s.ctx.settings.set('update_git_repo', 'https://example.test/a/b');
+  assert.equal((await admin('POST', '/api/updates/apply', { confirm: 'UPDATE' })).status, 400);
+  assert.equal(seen.length, 0);
 });
 
 test('apply without a configured sidecar secret is refused', async (t) => {

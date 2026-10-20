@@ -1,18 +1,20 @@
 import { useState, useEffect } from 'preact/hooks';
 import { api } from '../api.js';
 import { html, Icons } from '../ui.js';
-import { MiniBar, Dash, orDash, has, usedOf, uptimeText, loadText, seenText } from '../components/host-view.js';
+import { orDash, has, usedOf, uptimeText, loadText, seenText } from '../components/host-view.js';
+import { Chip, EmptyState, Gauge, KitIcons, OsIcon, SectionHeader, Segmented, Skeleton, StatCard, hostFor, hostName, nameFor } from '../components/ui-kit.js';
 
 export default function MonitoringPage({ hosts, addToast, currentUser }) {
-  const [health, setHealth] = useState([]);
+  const [health, setHealth] = useState(null);
   const [settings, setSettings] = useState({ retention_days: 30, poll_interval_seconds: 300 });
   const [hostId, setHostId] = useState('');
+  const [only, setOnly] = useState('all');
 
   const load = async () => {
     try {
       const [h, s] = await Promise.all([api('/api/health/hosts'), api('/api/settings')]);
       setHealth(h); setSettings(s);
-    } catch (e) { addToast(e.message, 'error'); }
+    } catch (e) { setHealth(x => x || []); addToast(e.message, 'error'); }
   };
   useEffect(() => { load(); const t = setInterval(load, 30000); return () => clearInterval(t); }, []);
 
@@ -24,76 +26,78 @@ export default function MonitoringPage({ hosts, addToast, currentUser }) {
     } catch (e) { addToast(e.message, 'error'); }
   };
 
-  const criticalCount = health.filter(h => h.criticals?.length).length;
-  const rows = hostId ? health.filter(h => h.host_id === hostId) : health;
+  const all = health || [];
+  const criticalCount = all.filter(h => h.criticals?.length).length;
+  const rows = all.filter(h => (!hostId || h.host_id === hostId) && (only === 'all' || h.criticals?.length));
   // Highest value across hosts, with the host it belongs to; null when no host reported it.
-  const top = f => rows.reduce((a, h) => (has(f(h.view || {})) && (!a || f(h.view) > a.v) ? { v: f(h.view), name: h.hostname } : a), null);
-  const tile = (label, t) => html`<div class="metric-card"><div class="page-desc">${label}</div>
-    <div class="metric-value">${t ? `${Math.round(t.v)}%` : html`<${Dash}/>`}</div><div class="page-desc">${t ? t.name : ''}</div></div>`;
+  const top = f => all.reduce((a, h) => (has(f(h.view || {})) && (!a || f(h.view) > a.v) ? { v: f(h.view), name: nameFor(hosts, h.host_id, h.hostname) } : a), null);
+  const topTile = (icon, label, t) => html`<${StatCard} icon=${icon} label=${label} value=${t ? `${Math.round(t.v)}%` : '-'}
+    tone=${t && t.v >= 90 ? 'bad' : t && t.v >= 75 ? 'warn' : ''} hint=${t ? t.name : 'Not reported'}/>`;
 
-  return (
-    html`<div>
-      <div class="page-header">
-        <div>
-          <div class="page-title">Monitoring</div>
-          <div class="page-desc">Latest CPU, memory, disk, Docker state and service warnings per host. Offline hosts show their last reported values.</div>
-        </div>
-        <button class="btn" onClick=${load}><${Icons.RefreshCw}/> Refresh</button>
+  return html`<div>
+    <div class="page-header">
+      <div><div class="page-title">Monitoring</div><div class="page-desc">Latest health per host. Offline hosts show their last values.</div></div>
+      <button class="btn" onClick=${load}><${Icons.RefreshCw}/> Refresh</button>
+    </div>
+    ${!health ? html`<${Skeleton} tiles=${4} rows=${3}/>` : html`<div class="page-stack">
+      <div class="stat-grid">
+        <${StatCard} icon="Alert" label="Hosts with warnings" value=${criticalCount} tone=${criticalCount ? 'bad' : 'ok'} hint=${`of ${all.length} hosts`}
+          onClick=${() => setOnly(o => (o === 'warn' ? 'all' : 'warn'))} pressed=${only === 'warn'}/>
+        ${topTile('Activity', 'Highest CPU', top(v => v.cpu_percent))}
+        ${topTile('Server', 'Highest memory', top(v => v.ram?.percent))}
+        ${topTile('HardDrive', 'Highest disk', top(v => v.disk_max_percent))}
       </div>
-      <div class="metric-grid">
-        <div class="metric-card"><div class="page-desc">Hosts with warnings</div><div class="metric-value">${criticalCount}</div></div>
-        ${tile('Highest CPU usage', top(v => v.cpu_percent))}
-        ${tile('Highest RAM usage', top(v => v.ram?.percent))}
-        ${tile('Highest disk usage', top(v => v.disk_max_percent))}
-      </div>
-      <div class="card">
-        <div class="card-header"><div class="card-title">Retention</div></div>
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label">Days to keep</label>
-            <input class="input" type="number" min="1" value=${settings.retention_days} onInput=${e => setSettings({ ...settings, retention_days: e.target.value })}/>
+      <section aria-labelledby="mon-h">
+        <${SectionHeader} id="mon-h" title="Hosts" count=${rows.length} right=${html`<div class="filter-bar" style=${{ margin: 0 }}>
+          <${Segmented} label="Show" value=${only} onChange=${setOnly} options=${[['all', 'All'], ['warn', 'With warnings', criticalCount]]}/>
+          <select class="select" aria-label="Host" value=${hostId} onChange=${e => setHostId(e.target.value)}>
+            <option value="">All hosts</option>
+            ${hosts.map(h => html`<option key=${h.id} value=${h.id}>${hostName(h)}</option>`)}
+          </select></div>`}/>
+        ${!rows.length ? html`<${EmptyState} icon="Activity" title=${all.length ? 'Nothing matches' : 'No host reports health yet'}
+            text=${all.length ? 'Every host in this view is clear.' : 'Install an agent and its first snapshot shows here within a minute.'}
+            action=${!all.length && html`<a class="btn btn-primary" href="#/agents">Install an agent</a>`}/>`
+          : html`<div class="mon-grid">${rows.map(h => {
+            const v = h.view || {};
+            const disks = (v.disks || []).map(d => `${d.mount} ${has(d.percent) ? Math.round(d.percent) : '-'}%`).join(', ');
+            return html`<article key=${h.host_id} class=${`mon-tile${h.online ? '' : ' is-offline'}`} aria-label=${nameFor(hosts, h.host_id, h.hostname)}>
+              <div class="mon-head">
+                <${OsIcon} host=${hostFor(hosts, h.host_id) || { os: h.os }} size=${22}/>
+                <a class="row-link" href=${`#/host/${encodeURIComponent(h.host_id)}`}><div class="row-title">${nameFor(hosts, h.host_id, h.hostname)}</div></a>
+                <${Chip} status=${h.online ? 'online' : 'offline'} dot>${h.online ? 'online' : 'offline'}<//>
+              </div>
+              <div class="row-sub">${[h.os, v.arch].filter(Boolean).join(' / ')}${seenText(v, h.online) ? ` · ${seenText(v, h.online)}` : ''}</div>
+              <div class="mon-gauges">
+                <${Gauge} label="CPU" value=${v.cpu_percent}/>
+                <span title=${usedOf(v.ram?.used, v.ram?.total) || ''}><${Gauge} label="Memory" value=${v.ram?.percent}/></span>
+                <span title=${disks}><${Gauge} label="Disk" value=${v.disk_max_percent}/></span>
+              </div>
+              <dl class="mon-meta">
+                <div><dt>Load</dt><dd class="mono" title=${loadText(v.load) || ""}>${orDash(loadText(v.load))}</dd></div>
+                <div><dt>Uptime</dt><dd>${orDash(uptimeText(v.uptime_s))}</dd></div>
+                <div><dt>Docker</dt><dd>${has(v.docker_total) ? `${v.docker_running ?? 0} of ${v.docker_total}` : orDash(null)}</dd></div>
+              </dl>
+              <div class="chip-row">${h.criticals?.length ? h.criticals.map(c => html`<${Chip} key=${c} tone="bad">${c}<//>`) : html`<${Chip} tone="ok">Clear<//>`}</div>
+            </article>`;
+          })}</div>`}
+      </section>
+      <details class="disclose card">
+        <summary><${KitIcons.Chevron}/>Retention and snapshot interval</summary>
+        <div class="form-row" style=${{ marginTop: 12, flexWrap: 'wrap' }}>
+          <div class="form-group" style=${{ minWidth: 180 }}>
+            <label class="form-label" for="mon-ret">Days to keep</label>
+            <input id="mon-ret" class="input" type="number" min="1" value=${settings.retention_days} onInput=${e => setSettings({ ...settings, retention_days: e.target.value })}/>
           </div>
-          <div class="form-group">
-            <label class="form-label">Snapshot interval seconds</label>
-            <input class="input" type="number" min="60" value=${settings.poll_interval_seconds} onInput=${e => setSettings({ ...settings, poll_interval_seconds: e.target.value })}/>
+          <div class="form-group" style=${{ minWidth: 180 }}>
+            <label class="form-label" for="mon-int">Snapshot interval (seconds)</label>
+            <input id="mon-int" class="input" type="number" min="60" value=${settings.poll_interval_seconds} onInput=${e => setSettings({ ...settings, poll_interval_seconds: e.target.value })}/>
           </div>
           <div style=${{ alignSelf: 'end' }}>
-            <button class="btn btn-primary" onClick=${saveSettings} disabled=${currentUser.role !== 'admin'}><${Icons.Settings}/> Save</button>
+            <button class="btn btn-primary" onClick=${saveSettings} disabled=${currentUser.role !== 'admin'}
+              title=${currentUser.role !== 'admin' ? 'Only administrators can change this' : undefined}>Save</button>
           </div>
         </div>
-      </div>
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title">Host health</div>
-          <select class="select" style=${{ maxWidth: 260 }} value=${hostId} onChange=${e => setHostId(e.target.value)}>
-            <option value="">All hosts</option>
-            ${hosts.map(h => html`<option key=${h.id} value=${h.id}>${h.hostname}</option>`)}
-          </select>
-        </div>
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>Host</th><th>Reported</th><th>CPU</th><th>Load</th><th>RAM</th><th>Disk</th><th>Uptime</th><th>Docker</th><th>Warnings</th></tr></thead>
-            <tbody>
-              ${rows.map(h => {
-                const v = h.view || {};
-                return (
-                  html`<tr key=${h.host_id} style=${{ opacity: h.online ? 1 : 0.7 }}>
-                    <td><a href=${`#/host/${encodeURIComponent(h.host_id)}`}>${h.hostname}</a><div class="page-desc">${[h.os, v.arch].filter(Boolean).join(' / ')}</div></td>
-                    <td style=${{ whiteSpace: 'nowrap' }}>${orDash(seenText(v, h.online))}</td>
-                    <td><${MiniBar} percent=${v.cpu_percent} title=${has(v.cpu_cores) ? `${v.cpu_cores} cores` : ''}/></td>
-                    <td class="mono">${orDash(loadText(v.load))}</td>
-                    <td><${MiniBar} percent=${v.ram?.percent} title=${usedOf(v.ram?.used, v.ram?.total) || ''}/></td>
-                    <td><${MiniBar} percent=${v.disk_max_percent} title=${(v.disks || []).map(d => `${d.mount} ${has(d.percent) ? Math.round(d.percent) : '-'}%`).join(', ')}/></td>
-                    <td class="mono" style=${{ whiteSpace: 'nowrap' }}>${orDash(uptimeText(v.uptime_s))}</td>
-                    <td>${has(v.docker_total) ? `${v.docker_running ?? 0}/${v.docker_total}` : orDash(null)}</td>
-                    <td>${h.criticals?.length ? h.criticals.join(', ') : 'Clear'}</td>
-                  </tr>`
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>`
-  );
+      </details>
+    </div>`}
+  </div>`;
 }

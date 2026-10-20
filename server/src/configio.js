@@ -7,6 +7,7 @@ const ops = require('./hostops');
 const { KINDS: CHANNEL_KINDS } = require('./alerting/notify');
 const backup = require('./backup');
 const { CATALOGUE } = require('./builtin-schedules');
+const { ensureDisplayColumns, cleanDisplayName, cleanIcon } = require('./host-display');
 
 const FORMAT = 'labctl-config';
 const VERSION = 1;
@@ -55,6 +56,7 @@ const fromDb = (type, v) => (type === 'b' ? !!v : type === 'o' ? parseJson(v, nu
 
 function createConfigIo(ctx) {
   const { db } = ctx;
+  ensureDisplayColumns(db);
   const columns = table => new Set(db.prepare(`PRAGMA table_info(${table})`).all().map(c => c.name));
   const now = () => new Date().toISOString();
   const hostByName = name => db.prepare('SELECT * FROM hosts WHERE hostname = ? COLLATE NOCASE').get(name);
@@ -100,7 +102,7 @@ function createConfigIo(ctx) {
     data.users = db.prepare('SELECT username, role FROM users ORDER BY username COLLATE NOCASE').all();
     data.hosts = db.prepare('SELECT * FROM hosts ORDER BY hostname COLLATE NOCASE').all().map(h => {
       const d = ops.getData(db, h.id);
-      return { name: h.hostname, kind: h.kind, os: h.os, address: d.ssh?.address || h.ip || null, port: d.ssh?.port ?? null,
+      return { name: h.hostname, display_name: h.display_name || null, icon: h.icon || null, kind: h.kind, os: h.os, address: d.ssh?.address || h.ip || null, port: d.ssh?.port ?? null,
         provider: d.provider || '', region: d.region || '', plan: d.plan || '', notes: d.notes || '',
         tags: db.prepare('SELECT t.name FROM tags t JOIN host_tags ht ON ht.tag_id = t.id WHERE ht.host_id = ? ORDER BY t.name').all(h.id).map(t => t.name),
         groups: db.prepare('SELECT g.name FROM groups g JOIN host_groups hg ON hg.group_id = g.id WHERE hg.host_id = ? ORDER BY g.ord').all(h.id).map(g => g.name) };
@@ -297,7 +299,7 @@ function createConfigIo(ctx) {
   }
 
   function planHosts(items) {
-    const allowed = ['name', 'kind', 'os', 'address', 'port', 'provider', 'region', 'plan', 'notes', 'tags', 'groups'];
+    const allowed = ['name', 'display_name', 'icon', 'kind', 'os', 'address', 'port', 'provider', 'region', 'plan', 'notes', 'tags', 'groups'];
     const seen = new Set();
     return items.map((it, n) => {
       if (!isObj(it) || typeof it.name !== 'string' || !it.name.trim() || it.name.length > 200) return conflict(`#${n + 1}`, 'name must be text up to 200 characters');
@@ -307,6 +309,14 @@ function createConfigIo(ctx) {
       const unknown = unknownField(it, allowed);
       if (unknown) return conflict(name, `unknown field "${unknown}"`);
       for (const k of ['provider', 'region', 'plan', 'notes']) if (it[k] !== undefined && (typeof it[k] !== 'string' || it[k].length > 2000)) return conflict(name, `${k} must be text`);
+      // display_name and icon: same rules as PATCH /api/hosts/:id. null clears; a missing field leaves the host as it is.
+      const look = {};
+      for (const [k, clean] of [['display_name', cleanDisplayName], ['icon', cleanIcon]]) {
+        if (it[k] === undefined) continue;
+        const c = clean(it[k]);
+        if (c.error) return conflict(name, c.error);
+        look[k] = c.value;
+      }
       for (const k of ['tags', 'groups']) {
         if (it[k] !== undefined && (!Array.isArray(it[k]) || it[k].length > 100 || it[k].some(x => typeof x !== 'string' || !x.trim() || x.length > 100))) return conflict(name, `${k} must be a list of names`);
       }
@@ -319,8 +329,10 @@ function createConfigIo(ctx) {
       const curGroups = db.prepare('SELECT g.name FROM groups g JOIN host_groups hg ON hg.group_id = g.id WHERE hg.host_id = ?').all(h.id).map(g => lc(g.name)).sort();
       const tagsChanged = it.tags !== undefined && !same([...new Set(it.tags.map(lc))].sort(), curTags);
       const groupsChanged = it.groups !== undefined && !same([...new Set(it.groups.map(lc))].sort(), curGroups);
-      if (!Object.keys(meta).length && !tagsChanged && !groupsChanged) return skip(name, 'unchanged');
-      return { op: 'update', name, reason: `changes: ${[...Object.keys(meta), tagsChanged && 'tags', groupsChanged && 'groups'].filter(Boolean).join(', ')}`, apply: () => {
+      for (const k of Object.keys(look)) if ((h[k] || null) === look[k]) delete look[k];
+      if (!Object.keys(meta).length && !Object.keys(look).length && !tagsChanged && !groupsChanged) return skip(name, 'unchanged');
+      return { op: 'update', name, reason: `changes: ${[...Object.keys(look), ...Object.keys(meta), tagsChanged && 'tags', groupsChanged && 'groups'].filter(Boolean).join(', ')}`, apply: () => {
+        for (const [k, v] of Object.entries(look)) db.prepare(`UPDATE hosts SET ${k} = ? WHERE id = ?`).run(v, h.id);
         if (Object.keys(meta).length) ops.saveData(db, h.id, meta);
         if (tagsChanged) ops.setTags(db, h.id, ops.tagIds(db, it.tags));
         if (groupsChanged) {

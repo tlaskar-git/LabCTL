@@ -30,7 +30,7 @@ async function seed(s, admin) {
   ins('groups', { id: group, name: 'Lab', color: '#112233', ord: 2, created_at: stamp });
   ins('tags', { id: tag, name: 'ring0', color: '#445566', created_at: stamp });
   const host = randomUUID();
-  ins('hosts', { id: host, hostname: 'vps-one', os: 'linux', ip: '192.0.2.10', kind: 'vps', status: 'offline', created_at: stamp, updated_at: stamp,
+  ins('hosts', { id: host, hostname: 'vps-one', display_name: 'Edge VPS', icon: 'vps', os: 'linux', ip: '192.0.2.10', kind: 'vps', status: 'offline', created_at: stamp, updated_at: stamp,
     data: JSON.stringify({ provider: 'ExampleCloud', region: 'eu-1', plan: 'small', notes: 'first host', ssh: { address: '192.0.2.10', port: 2222, username: 'root', credential_id: 'cred-x' } }) });
   ins('host_tags', { host_id: host, tag_id: tag });
   ins('host_groups', { host_id: host, group_id: group });
@@ -88,7 +88,7 @@ test('export has the documented shape and no secrets or hashes anywhere', async 
   assert.equal(byName('channels', 'Ops Webhook').config.url, 'https://example.test/hook');
   assert.equal(byName('channels', 'Ops Mail').config.user, 'mailer');
   const host = byName('hosts', 'vps-one');
-  assert.deepEqual({ ...host }, { name: 'vps-one', kind: 'vps', os: 'linux', address: '192.0.2.10', port: 2222, provider: 'ExampleCloud', region: 'eu-1', plan: 'small', notes: 'first host', tags: ['ring0'], groups: ['Lab'] });
+  assert.deepEqual({ ...host }, { name: 'vps-one', display_name: 'Edge VPS', icon: 'vps', kind: 'vps', os: 'linux', address: '192.0.2.10', port: 2222, provider: 'ExampleCloud', region: 'eu-1', plan: 'small', notes: 'first host', tags: ['ring0'], groups: ['Lab'] });
   assert.equal(byName('schedules', 'Nightly disk').host, 'vps-one');
   assert.deepEqual(byName('alert_rules', 'Custom disk rule').config.channels, ['Ops Telegram']);
   assert.equal(byName('alert_rules', 'Custom disk rule').config.silenced_until, undefined);
@@ -160,6 +160,7 @@ test('re-import is idempotent and keeps secrets already set on a channel', async
   const hostOut = after.hosts.find(h => h.name === 'vps-one');
   assert.deepEqual([hostOut.provider, hostOut.region, hostOut.plan, hostOut.notes, hostOut.tags, hostOut.groups], ['ExampleCloud', 'eu-1', 'small', 'first host', ['ring0'], ['Lab']]);
   assert.equal(hostOut.kind, 'vps');
+  assert.deepEqual([hostOut.display_name, hostOut.icon], ['Edge VPS', 'vps'], 'display name and icon travel with the host');
   assert.equal(after.schedules.find(x => x.name === 'Nightly disk').host, 'vps-one');
   assert.equal(b.s.ctx.db.prepare("SELECT enabled FROM channels WHERE name = 'Ops Webhook'").get().enabled, 0, 'new channel without secrets is created disabled');
   const tgRow = b.s.ctx.db.prepare('SELECT * FROM channels WHERE id = ?').get(existing.data.id);
@@ -278,4 +279,22 @@ test('a failure inside the apply step rolls the whole import back', async (t) =>
     data: { groups: [{ name: 'g-rollback' }], tags: [{ name: 't-rollback' }] } });
   assert.equal(r.status, 500);
   assert.equal(s.ctx.db.prepare('SELECT COUNT(*) AS n FROM groups').get().n, 0);
+});
+
+test('host display_name and icon are validated on import, and null clears them', async (t) => {
+  const b = await setup(t);
+  const id = randomUUID();
+  b.s.ctx.db.prepare("INSERT INTO hosts (id, hostname, kind, status, data, display_name, icon, created_at, updated_at) VALUES (?, 'h-one', 'agent', 'offline', '{}', 'Old name', 'linux', ?, ?)").run(id, stamp, stamp);
+  const file = hosts => ({ format: 'labctl-config', version: 1, data: { hosts } });
+  const imp = importer(b.admin);
+  const bad = await imp(file([{ name: 'h-one', icon: 'not-an-icon' }]), { dry_run: true });
+  assert.ok(bad.data.plan.conflicts.some(r => r.name === 'h-one' && /icon must be one of/.test(r.reason)), JSON.stringify(bad.data.plan));
+  const long = await imp(file([{ name: 'h-one', display_name: 'x'.repeat(65) }]), { dry_run: true });
+  assert.ok(long.data.plan.conflicts.some(r => /64 characters/.test(r.reason)));
+  const ok = await imp(file([{ name: 'h-one', display_name: null, icon: 'debian' }]), { dry_run: false, confirm: 'IMPORT' });
+  assert.equal(ok.status, 200, JSON.stringify(ok.data));
+  const row = b.s.ctx.db.prepare('SELECT display_name, icon FROM hosts WHERE id = ?').get(id);
+  assert.deepEqual([row.display_name, row.icon], [null, 'debian']);
+  const again = await imp(file([{ name: 'h-one', display_name: null, icon: 'debian' }]), { dry_run: true });
+  assert.ok(again.data.plan.skip.some(r => r.name === 'h-one' && r.reason === 'unchanged'));
 });

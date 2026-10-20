@@ -18,6 +18,10 @@ function createJobs(ctx) {
   ensureColumn(db, 'jobs', 'bytes_received', 'INTEGER NOT NULL DEFAULT 0');
   ensureColumn(db, 'jobs', 'sent_at', 'TEXT');
   ensureColumn(db, 'jobs', 'result_text', 'TEXT'); // job.result for legacy.RESULT_TYPES, kept whole for the UI parsers
+  ensureColumn(db, 'hosts', 'display_name', 'TEXT'); // also added by host-display.js; jobs show it as host_name
+  const hostOf = id => (id ? db.prepare('SELECT hostname, display_name FROM hosts WHERE id = ?').get(id) : null);
+  // hostname stays the real name (matching, confirmations); host_name is what screens show.
+  const names = (id, h) => ({ hostname: h?.hostname || id, host_name: h?.display_name || h?.hostname || id });
   db.exec(`CREATE TABLE IF NOT EXISTS job_groups (id TEXT PRIMARY KEY, label TEXT, type TEXT, actor TEXT, retry_of TEXT, created_at TEXT NOT NULL);
     CREATE INDEX IF NOT EXISTS jobs_group ON jobs(group_id)`);
   const lastLine = text => {
@@ -113,8 +117,7 @@ function createJobs(ctx) {
     // log:false skips the log text (the drawer streams it instead) but keeps a stored result_text. started_by and ended_at name actor and completed_at.
     out(job, { full = false, log = true } = {}) {
       if (!job) return null;
-      const host = job.host_id && db.prepare('SELECT hostname FROM hosts WHERE id = ?').get(job.host_id);
-      return { ...job, hostname: host?.hostname || job.host_id, started_by: job.actor, ended_at: job.completed_at,
+      return { ...job, ...names(job.host_id, hostOf(job.host_id)), started_by: job.actor, ended_at: job.completed_at,
         result: job.result_text ?? (!log ? '' : full ? ctx.joblog.read(job.id) : ctx.joblog.tail(job.id, 4096)) };
     },
     markRunning(id) { return setStatus(id, 'running', { started_at: now() }); },
@@ -158,8 +161,7 @@ function createJobs(ctx) {
       const counts = {};
       const hosts = rows.map(j => {
         counts[j.status] = (counts[j.status] || 0) + 1;
-        const h = db.prepare('SELECT hostname FROM hosts WHERE id = ?').get(j.host_id);
-        return { job_id: j.id, host_id: j.host_id, hostname: h?.hostname || j.host_id, status: j.status, exit_code: j.exit_code,
+        return { job_id: j.id, host_id: j.host_id, ...names(j.host_id, hostOf(j.host_id)), status: j.status, exit_code: j.exit_code,
           duration_ms: j.duration_ms, started_at: j.started_at, completed_at: j.completed_at, bytes_received: j.bytes_received,
           last_line: lastLine(ctx.joblog.tail(j.id, 1024)) };
       });
