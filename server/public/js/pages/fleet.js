@@ -67,7 +67,7 @@ export default function FleetPage({ hosts = [] }) {
   const cpu = s && lastOf(s.trend.cpu), ram = s && lastOf(s.trend.ram);
   return html`<div>
     <div class="page-header">
-      <div><div class="page-title">Fleet overview</div><div class="page-desc">Online means seen in the last ${s?.online_window_s ?? 90} seconds.</div></div>
+      <div><div class="page-title">Overview</div><div class="page-desc">Online means seen in the last ${s?.online_window_s ?? 90} seconds.</div></div>
       <button class="btn" onClick=${load}><${Icons.RefreshCw}/> Refresh</button>
     </div>
     ${error && html`<div class="callout bad" style=${{ marginBottom: 16 }}><${KitIcons.Alert}/><div>${error}</div></div>`}
