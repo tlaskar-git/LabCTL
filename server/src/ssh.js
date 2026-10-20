@@ -76,20 +76,23 @@ function createSsh(ctx, { pollMs = 60000, readyTimeout = 15000 } = {}) {
     });
   }
 
-  function jobCommand(host, job) {
+  // Secrets (LABCTL_SECRET_*) travel in the stdin prelude only, never on the command line.
+  function jobCommand(host, job, secrets = {}) {
     const env = Object.entries(parseJson(job.params, {}).env || {}).filter(([k]) => ENV_NAME.test(k));
+    const sec = Object.entries(secrets).filter(([k]) => ENV_NAME.test(k));
     const shell = job.shell || (isWindows(host) ? 'powershell' : 'bash');
     if (shell === 'powershell') {
       return { command: 'powershell -NoProfile -NonInteractive -Command -',
-        stdin: env.map(([k, v]) => `$env:${k}=${psq(v)}`).join('\n') + '\n' + job.script };
+        stdin: [...env, ...sec].map(([k, v]) => `$env:${k}=${psq(v)}`).join('\n') + '\n' + job.script };
     }
     if (shell === 'python') {
-      return { command: `${env.map(([k, v]) => `${k}=${shq(v)}`).join(' ')} python3 -`.trim(), stdin: job.script };
+      const prelude = sec.length ? `import os\n${sec.map(([k, v]) => `os.environ[${JSON.stringify(k)}] = ${JSON.stringify(v)}`).join('\n')}\n` : '';
+      return { command: `${env.map(([k, v]) => `${k}=${shq(v)}`).join(' ')} python3 -`.trim(), stdin: prelude + job.script };
     }
-    return { command: 'bash -s', stdin: env.map(([k, v]) => `export ${k}=${shq(v)}`).join('\n') + '\n' + job.script };
+    return { command: 'bash -s', stdin: [...env, ...sec].map(([k, v]) => `export ${k}=${shq(v)}`).join('\n') + '\n' + job.script };
   }
 
-  async function run(job, host) {
+  async function run(job, host, secrets = {}) {
     if (!job.script) throw new Error('SSH hosts run script jobs only');
     const started = Date.now();
     const client = await connect(host);
@@ -99,7 +102,7 @@ function createSsh(ctx, { pollMs = 60000, readyTimeout = 15000 } = {}) {
     try {
       if (ctx.jobs.get(job.id).status === 'cancelled') cancelled = true;
       else {
-        const { command, stdin } = jobCommand(host, job);
+        const { command, stdin } = jobCommand(host, job, secrets);
         const code = await exec(client, command, {
           stdin,
           onStart: stream => {
@@ -126,7 +129,8 @@ function createSsh(ctx, { pollMs = 60000, readyTimeout = 15000 } = {}) {
 
   // jobs.registerDispatcher hook: hand off now, the job finishes asynchronously.
   function runJob(job, host) {
-    setImmediate(() => run(job, host).catch(err => {
+    const secrets = ctx.templateSecrets ? ctx.templateSecrets.take(job.id) : {}; // taken at dispatch, held in this closure only
+    setImmediate(() => run(job, host, secrets).catch(err => {
       try { ctx.jobs.complete(job.id, 'failed', { error: err.message }); } catch { /* server is closing */ }
     }));
     return true;
