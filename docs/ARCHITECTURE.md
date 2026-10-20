@@ -313,6 +313,20 @@ log over SSE, mints a dedicated enrolment token and waits for the agent to regis
   helper and one remote shell serve a whole deploy. JSON lines on stdin and stdout; the password goes on stdin only,
   never in argv or the environment. Python is `LABCTL_WINRM_PYTHON`, else `/opt/winrm-venv/bin/python`, else `python3`.
   If none can import pywinrm, `winrm-client@0.0.12` is the fallback. Scripts travel as `-EncodedCommand`.
+- Windows launcher (`windows.js`, same for OpenSSH and WinRM, install and uninstall): files go as base64 chunks into
+  `$env:TEMP\labctl-deploy-<id>` of the signed-in account. `wrap.ps1` starts first as a hidden `Start-Process` child of
+  the remote session, the method proven in the field (the session stays open while the server polls). Its first
+  `run.log` line is `wrapper started as <account>, elevated=<bool>, psversion=<v>`, so a missing `run.log` means "did
+  not start". The server polls every 5 s. Only when no `run.log` appears within 45 s, it logs `The hidden process did not
+  start, trying a scheduled task`, terminates that process (matched by PID and command line, so two setups never run at
+  once) and falls back to a one-shot scheduled task `LabCTL-Deploy-<id>` (principal S-1-5-18, RunLevel Highest, one hour
+  limit), else `Win32_Process.Create` through CIM. No `run.log` 45 s after the fallback fails with each launcher's state
+  (process alive or ended, task state and last result, WMI process), the session account, elevation (`IsInRole
+  (Administrator)` and `whoami /groups` containing S-1-16-12288) and the likely cause. A non-elevated session gets a
+  warning. Three minutes without a new line logs `No output for 3 minutes. Last line: ...`. The overall limit stays 20
+  minutes. The cleanup always deletes the task, stops a still-running wrapper and removes the folder. `npm test` runs the
+  generated PowerShell for real on Windows (Start-Process, then the WMI fallback, in a temp folder); a real remote session
+  is not tested.
 - Per-host server URL: `server_url` in the pre-flight, start and redeploy bodies (and `manual-commands`) overrides the
   `public_url` setting and the request origin for that host. Same rule as `public_url`: http or https, host or IP,
   optional port, no path. Saved in the host's deploy data, prefilled by Redeploy, shown in the deploy log and named in

@@ -10,7 +10,8 @@
 #   LabCTL-Agent-Watchdog  every minute, runs "labctl-agent.py --watchdog" twice (30 s apart) and starts the
 #                          agent task again when it is not running (for example after exit code 75)
 # Uses labctl-agent.py from this folder when present, else downloads it from the server with the token.
-# Python 3.8 or newer is installed silently (winget, else the signed python.org installer) when it is missing.
+# Python 3.8 or newer is installed silently (the signed python.org installer) when it is missing.
+# A v1 agent (an NSSM service named LabCTL-Agent, or a python process running labctl-agent.py) is stopped first.
 # The server renders $DefaultServer and $DefaultToken when it serves this script. This file is ASCII only on purpose.
 [CmdletBinding()]
 param(
@@ -157,6 +158,26 @@ function Remove-AgentTask {
     }
 }
 
+# v1 ran the agent as an NSSM service (named like the task) or as a plain python process. Either keeps files locked
+# and keeps a second agent connected, so both are stopped and logged (PID and name only: v1 command lines held tokens).
+function Stop-OldAgent {
+    [CmdletBinding(SupportsShouldProcess)]
+    param([string]$Name)
+    $svc = Get-Service -Name $Name -ErrorAction SilentlyContinue
+    if ($svc -and $PSCmdlet.ShouldProcess($Name, 'Stop and delete the v1 service')) {
+        Stop-Service -Name $Name -Force -ErrorAction SilentlyContinue
+        $r = Invoke-Native 'sc.exe' @('delete', $Name)
+        Write-Log "Stopped and removed the old service $Name (sc.exe delete exit code $($r.ExitCode))"
+    }
+    foreach ($p in @(Get-CimInstance -ClassName Win32_Process -ErrorAction SilentlyContinue |
+            Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -like '*labctl-agent.py*' })) {
+        if ($PSCmdlet.ShouldProcess("$($p.Name) $($p.ProcessId)", 'Stop the old agent process')) {
+            Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue
+            Write-Log "Stopped an old agent process: $($p.Name) (PID $($p.ProcessId)) running labctl-agent.py"
+        }
+    }
+}
+
 # Wrapper scripts live in the install folder. They are static: every path comes from $PSScriptRoot or agent.json.
 $RunAgentScript = @'
 # Runs the LabCTL agent and appends its output to agent.log (rotated at 10 MB). Written by setup-windows.ps1.
@@ -261,6 +282,7 @@ function Install-Agent {
     Write-Log '[2/6] Install folder' 'Yellow'
     Remove-AgentTask $watchName
     Remove-AgentTask $Task
+    Stop-OldAgent $Task
     New-Item -ItemType Directory -Force -Path $Dir | Out-Null
     # Only SYSTEM and Administrators may touch this folder: the SYSTEM tasks run scripts from it and agent.json holds the token.
     $acl = Invoke-Native 'icacls.exe' @($Dir, '/inheritance:r', '/grant:r', '*S-1-5-18:(OI)(CI)F', '*S-1-5-32-544:(OI)(CI)F')
@@ -347,6 +369,7 @@ function Uninstall-Agent {
     if (-not (Test-InstallDirSafe $Dir)) { throw "Refusing to remove $Dir." }
     Remove-AgentTask "$Task-Watchdog"
     Remove-AgentTask $Task
+    Stop-OldAgent $Task
     for ($i = 0; $i -lt 10 -and (Test-Path -LiteralPath $Dir); $i++) {
         Remove-Item -LiteralPath $Dir -Recurse -Force -ErrorAction SilentlyContinue
         if (Test-Path -LiteralPath $Dir) { Start-Sleep -Seconds 1 }

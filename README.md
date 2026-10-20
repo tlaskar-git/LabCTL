@@ -248,7 +248,7 @@ irm "https://labctl.example.test/install/windows.ps1?token=<token>" | iex
 
 Or `.\setup-windows.ps1 -ServerUrl https://labctl.example.test -Token <token>`, and `-Uninstall` to remove it.
 
-It installs to `C:\ProgramData\LabCTL\agent` with its own virtual environment and registers two SYSTEM scheduled tasks: `LabCTL-Agent` (at start-up, restarts on failure) and `LabCTL-Agent-Watchdog` (every minute, handles self-update roll back and restarts the agent after exit code 75). It installs Python 3.8 or newer with winget or the python.org installer when none is present.
+It installs to `C:\ProgramData\LabCTL\agent` with its own virtual environment and registers two SYSTEM scheduled tasks: `LabCTL-Agent` (at start-up, restarts on failure) and `LabCTL-Agent-Watchdog` (every minute, handles self-update roll back and restarts the agent after exit code 75). It installs Python 3.8 or newer with the signed python.org installer when none is present. It stops a v1 agent first: an old `LabCTL-Agent` service (NSSM) is stopped and deleted, and any process running `labctl-agent.py` is stopped. The setup log lists each one.
 
 The installer URLs contain the token. Treat the command line as secret and rotate the token if it was exposed.
 
@@ -269,6 +269,35 @@ The wizard runs a pre-flight check (reachability, host key, privileges, Python),
 **Server URL for this host** (optional, in the Target step, the Manual command tab and the Redeploy dialog): the address the host uses to reach LabCTL, for example a tunnel address or a public hostname behind the reverse proxy. Use it when the host cannot reach the default (the `public_url` setting, else the address in your browser). Format: `http(s)://host[:port]`, no path. The pre-flight check, the agent's `--server` value and the install commands all use it, the deploy log shows it, and the host remembers it for Redeploy.
 
 **Windows over WinRM** needs: WinRM enabled (`winrm quickconfig` as an administrator), port 5985 or 5986 reachable from the LabCTL server, and an administrator account. Type domain accounts as `DOMAIN\name` (or `name@domain`), local accounts as `name`. Kerberos is not used. The Docker image carries pywinrm in `/opt/winrm-venv`. For a source install, create that venv with `python3 -m venv /opt/winrm-venv && /opt/winrm-venv/bin/pip install -r server/src/deploy/winrm-requirements.txt`, or set `LABCTL_WINRM_PYTHON` to a Python that has those packages. Without pywinrm LabCTL falls back to the built-in `winrm-client`, which sends SOAP unencrypted and fails on hosts with the Windows default.
+
+**How a Windows deploy runs** (OpenSSH and WinRM, install and remove-agent alike):
+
+1. LabCTL creates `$env:TEMP\labctl-deploy-<id>` for the signed-in account. The log shows the account, whether the session is elevated, its integrity level and the PowerShell version.
+2. It uploads `setup-windows.ps1`, `labctl-agent.py`, `run.ps1` (which holds the enrolment token) and `wrap.ps1` into that folder.
+3. It starts `wrap.ps1` as a hidden `Start-Process` child of the remote session. The session stays open while LabCTL polls, so the child keeps running. This is the method that works in the field.
+4. `wrap.ps1` writes `wrapper started as <account>, elevated=<True|False>, psversion=<version>` to `run.log` before anything else, then runs the setup and writes its exit code to `run.exit`. Every 5 s LabCTL sends the new `run.log` lines to the deploy log.
+5. Only when `run.log` has not appeared after 45 s, LabCTL logs `The hidden process did not start, trying a scheduled task`, stops that process and starts `wrap.ps1` again through a one-shot scheduled task `LabCTL-Deploy-<id>` as SYSTEM (highest run level). If the task cannot be registered or started, it uses WMI (`Win32_Process.Create`) as the signed-in account. The fallback gets another 45 s.
+6. At the end, also after a failure, LabCTL deletes the task, stops a wrapper that still runs and removes the folder.
+
+What the failure messages mean:
+
+| Message | Meaning |
+| --- | --- |
+| `The hidden process did not start, trying a scheduled task` | The first launch wrote nothing within 45 s. LabCTL tries the fallback launchers. |
+| `The setup script did not start: run.log did not appear within 45 s of each launch` | Neither launch ran the wrapper. The message lists each launcher (the hidden process and whether it still runs, the task state and last result, or the WMI process), the session account and elevation, and the likely cause: Task Scheduler not running, AppLocker, WDAC or an antivirus blocking `powershell.exe`, or a session that is not elevated. |
+| `Warning: this session is not elevated` | The setup needs an elevated administrator and stops with "Run this script in an elevated PowerShell". Use a member of Administrators, or for a local account set `LocalAccountTokenFilterPolicy`. |
+| `No output for 3 minutes. Last line: ...` | Progress notice only. A Python download or install can be quiet for a while. The deploy goes on. |
+| `The setup script exited with code <n>. Last line: ...` | The setup ran and failed. The last line is its error. |
+| `The setup script did not finish within 20 minutes` | Overall limit. The task or process is stopped and the folder removed. |
+
+Manual fallback: on the host, open PowerShell with **Run as administrator** and paste the Windows one-line command from the **Manual** tab of the wizard (`irm "https://labctl.example.test/install/windows.ps1?token=<token>" | iex`).
+
+Troubleshooting a Windows deploy on the host:
+
+- While it runs, the live log is `run.log` in `$env:TEMP\labctl-deploy-<id>` of the account LabCTL signed in with (for example `C:\Users\<account>\AppData\Local\Temp\labctl-deploy-<id>\run.log`). The exit code lands in `run.exit`.
+- The setup log is `C:\ProgramData\LabCTL\setup.log`. If it is missing, the setup script never ran.
+- `Get-ScheduledTask LabCTL*` lists the deploy task (only while a deploy runs) and the agent tasks `LabCTL-Agent` and `LabCTL-Agent-Watchdog`. `Get-ScheduledTask LabCTL-Deploy-* | Get-ScheduledTaskInfo` shows the last result.
+- The agent log is `C:\ProgramData\LabCTL\agent\agent.log`.
 
 ### Agentless SSH hosts
 
