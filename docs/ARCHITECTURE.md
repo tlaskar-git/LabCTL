@@ -70,7 +70,7 @@ Every route file receives `ctx`:
 | `scheduler` | `nextRun`, `validate`, `recomputeAll`, `tick` |
 | `tokens` | enrolment token store |
 | `retention` | `run()` |
-| `templates` | `{ catalogue, run, resolveHosts }`. `run` creates one job per host for a template. |
+| `templates` | `{ catalogue, run, resolveHosts, store }`. `run` creates one job per host for a template. `catalogue` is live: `templates` and `byId` are rebuilt in place after every edit in the app (`store`, `src/template-store.js`). |
 | `templateSecrets` | `take(jobId)` returns and forgets the `LABCTL_SECRET_*` environment of a template job. Agent and SSH dispatchers both call it, so secrets reach agent and SSH hosts and are never stored. |
 | `runbooks`, `patching`, `github`, `deploy`, `ssh`, `backups` | Engines created by their route files. |
 | `alerting`, `maintenance` | Alert engine and maintenance windows (`ctx.maintenance` is `ctx.alerting.maintenance`). |
@@ -251,6 +251,14 @@ file. Parameters arrive as `LABCTL_P_<NAME>`, secrets as `LABCTL_SECRET_<NAME>`.
 `LABCTL_RESULT key=value` for facts a runbook needs (for example `reboot_required=yes`). Details, runbook step kinds and
 drain semantics are in `docs/templates.md`.
 
+Admins edit templates in the app. The files under `src/templates/` are never written. `src/template-store.js` keeps
+two tables: `template_overrides` (one row per built-in id, action `edit` with the changed fields, or `hide`) and
+`custom_templates` (templates made in the app, id `custom-<uuid>`). The effective catalogue is the built-ins with edits
+applied, minus hidden ones, plus the custom templates. Every reader (run, actions panel, runners, ephemeral runners,
+patching, built-in schedules, runbooks, palette) goes through `ctx.templates.catalogue.byId` at use time, so an edit
+takes effect on the next run. A guarded built-in keeps `guard: true`. Audit rows record the script size and a SHA-256
+prefix, never the script text; the route swaps the script in the request body before the audit middleware stores it.
+
 Domain controller rule: a Windows host counts as a domain controller when the agent inventory says so
 (`windows.domain_controller`, or `domain_role` 4 or 5) or when it carries the tag `domain-controller`. Only then do
 `win_dc_health`, `win_dns_check` and `win_dns_restart` apply, and the run needs the typed confirmation.
@@ -390,6 +398,19 @@ window is stored as skipped.
   `compliance_patch_days` (35), `compliance_backup_days` (8), `compliance_eol_warn_days` (180), `backup_job_pattern`.
 - Built-in schedules (`/api/builtin-schedules`): `patch_weekly`, `cleanup_weekly`, `mac_monthly`, `health_report`,
   `cert_expiry`. Enabling twice never duplicates. Other settings used: `cert_domains`, `health_report_channels`.
+  `CATALOGUE` in `src/builtin-schedules.js` is the factory default. `src/builtin-schedule-store.js` keeps
+  `builtin_schedule_overrides` (one row per factory key: action `edit` with the changed fields, or `hide`) and
+  `custom_builtin_schedules` (entries made in the app, key `custom-<id>`). The effective list is the factory entries with
+  edits applied, minus hidden ones, plus the custom entries; list, enable, disable, edit, run and the tick all use it.
+  A template entry holds steps (`{template, params}`) and a scope (`all`, `hosts`, `groups`, `tags`, `os`, `kinds`,
+  `rings`, `runners`; a host matches when any part matches). Every entry runs through the `builtin_schedules` row and
+  its 60 s tick, so maintenance skips and missed runs work the same for all. A step whose template is missing fails the
+  run with `Template <id> was removed` and the list flags it (`missing_templates`). The weekly patching entry edits its
+  three ring policies through `ctx.patching` (`depends_on` kept). Routes: `GET /api/builtin-schedules[?removed=1]`,
+  `GET /api/builtin-schedules/preview?cron=`, `GET /:key`; admin: `POST /`, `PUT /:key`, `DELETE /:key` (built-in: hide,
+  `confirm:"DELETE"` when ring policies exist; custom: `confirm` = name), `POST /:key/restore`, `POST /:key/reset`;
+  operator: `/:key/enable` (guarded entries need `confirm_word`), `/:key/disable`, `/:key/run`. Audit actions
+  `builtin_schedule.create|edit|hide|restore|reset|delete` record the key and the changed field names only.
 
 ## Backup, restore and config
 
@@ -428,7 +449,7 @@ All routes need a session unless noted. Role is the minimum. Roles: V viewer, O 
 | Install | `GET /install/agent.py`, `GET /install/:script` (token gate), `GET /api/agents/info`, `GET /api/agents/download/:file` |
 | Jobs | `GET/POST /api/jobs`, `GET /api/jobs/:id`, `/:id/log`, `/:id/stream`, `POST /api/jobs/batch`, `/:id/retry`, `/:id/cancel`, `GET /api/job-groups`, `/:id`, `/:id/stream`, `POST /api/job-groups/:id/retry-failed`, `GET /api/logs/search` |
 | Scripts, schedules | `/api/scripts` (+ `POST /:id/run`), `/api/schedules`, `/api/builtin-schedules` (+ `enable`, `disable`, `run`) |
-| Templates | `GET /api/templates`, `/api/templates/runbooks`, `/api/templates/:id`, `POST /api/templates/:id/run`, `GET /api/hosts/:id/actions`, `/api/hosts/:id/action-results` |
+| Templates | `GET /api/templates` (`?hidden=1`), `/api/templates/runbooks`, `/api/templates/:id`, `POST /api/templates/:id/run`, admin: `POST /api/templates`, `PUT /api/templates/:id`, `POST /:id/clone`, `DELETE /:id`, `POST /:id/restore`, `GET /api/hosts/:id/actions`, `/api/hosts/:id/action-results` |
 | Runbooks | `/api/runbooks` (CRUD, `POST /:id/run`), `GET /api/runbook-runs`, `/:id`, `POST /:id/rerun` |
 | Runners | see GitHub runners above |
 | Alerts | `GET /api/alerts`, `/history`, `/:id`, `POST /:id/ack`, `/:id/silence`, `GET /api/alert-metrics`, `GET/PUT /api/alert-config` (A), `/api/alert-rules` (CRUD, test, silence) |

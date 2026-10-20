@@ -3,11 +3,13 @@
 const compliance = require('./compliance');
 
 const DAY = 86400000;
+const SECTIONS = ['Fleet', 'Compliance', 'Alerts', 'Jobs'];
 const ONLINE_MS = 90000;
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const names = (rows, n = 8) => (rows.length > n ? [...rows.slice(0, n).map(r => r.hostname), `and ${rows.length - n} more`] : rows.map(r => r.hostname)).join(', ');
 
-function build(ctx, now = new Date()) {
+// opts.sections: the section titles to include (default all).
+function build(ctx, now = new Date(), opts = {}) {
   const { db } = ctx;
   const ms = now.getTime();
   const hosts = db.prepare('SELECT id, hostname, last_seen FROM hosts ORDER BY hostname COLLATE NOCASE').all();
@@ -20,7 +22,7 @@ function build(ctx, now = new Date()) {
   const alertRows = alerts && !alerts.error ? alerts.rows : null;
 
   const withIssue = key => rep.hosts.filter(h => h.issues.includes(key));
-  const sections = [
+  const all = [
     { title: 'Fleet', lines: [`${hosts.length} hosts, ${hosts.length - offline.length} online, ${offline.length} offline`, ...(offline.length ? [`Offline: ${names(offline)}`] : [])] },
     { title: 'Compliance', lines: [
       `${s.compliant} of ${s.hosts} hosts have no findings`,
@@ -34,7 +36,10 @@ function build(ctx, now = new Date()) {
       [`${alerts.total} active`, ...alertRows.slice(0, 10).map(a => `${String(a.severity).toUpperCase()} ${a.rule_name || a.rule_id}${a.hostname ? ` on ${a.hostname}` : ''}: ${a.message || ''}`.trim())] },
     { title: 'Jobs', lines: [`${failedJobs} failed in the last 24 hours`] }
   ];
-  const problems = s.eol + s.patch_old + s.no_backup + offline.length + (alertRows ? alertRows.length : 0) + failedJobs;
+  const want = Array.isArray(opts.sections) && opts.sections.length ? opts.sections : SECTIONS;
+  const sections = all.filter(sec => want.includes(sec.title));
+  const counts = { Fleet: offline.length, Compliance: s.eol + s.patch_old + s.no_backup, Alerts: alertRows ? alertRows.length : 0, Jobs: failedJobs };
+  const problems = sections.reduce((n, sec) => n + counts[sec.title], 0);
   const subject = `LabCTL daily health report: ${problems ? `${problems} item${problems === 1 ? '' : 's'} need attention` : 'all clear'}`;
   const text = [subject, `Generated ${now.toISOString()}`, '', ...sections.flatMap(sec => [sec.title.toUpperCase(), ...sec.lines.map(l => `  ${l}`), ''])].join('\n').trim();
   const html = `<h2>${esc(subject)}</h2><p>Generated ${esc(now.toISOString())}</p>` +
@@ -42,12 +47,13 @@ function build(ctx, now = new Date()) {
   return { subject, text, html, problems, severity: problems ? 'warning' : 'info', generated_at: now.toISOString() };
 }
 
-// Sends through ctx.alerting's notifier. Channels: the health_report_channels setting, else the alerting defaults.
-async function send(ctx, now = new Date()) {
-  const report = build(ctx, now);
+// Sends through ctx.alerting's notifier. Channels: opts.channels, else the health_report_channels setting, else the alerting
+// defaults. opts.sections as for build().
+async function send(ctx, now = new Date(), opts = {}) {
+  const report = build(ctx, now, opts);
   const notifier = ctx.alerting?.notifier;
   if (!notifier) return { ok: false, error: 'Notification channels are not available (the alerting module is not loaded)', report };
-  const ids = ctx.settings.get('health_report_channels') || [];
+  const ids = opts.channels?.length ? opts.channels : ctx.settings.get('health_report_channels') || [];
   const payload = { rule: 'Daily health report', severity: report.severity, host: null, message: report.text, since: report.generated_at,
     link: notifier.link('fleet'), recovery: false, report: true, subject: report.subject, html: report.html };
   const results = await notifier.dispatch(payload, ids);
@@ -56,4 +62,4 @@ async function send(ctx, now = new Date()) {
   return { ok: failed.length === 0, sent: results.length - failed.length, failed: failed.length, error: failed[0]?.error, report };
 }
 
-module.exports = { build, send };
+module.exports = { build, send, SECTIONS };

@@ -88,6 +88,9 @@ function syntaxWarnings(shell, script) {
   return String(r.stderr || '').split('\n').map(s => s.trim()).filter(Boolean).slice(0, 10);
 }
 
+let schedulesSource = null; // set by the schedules routes: () => effective built-in schedule list
+function setSchedulesSource(fn) { schedulesSource = fn; }
+
 function createTemplateStore(db, base) {
   db.exec(`CREATE TABLE IF NOT EXISTS template_overrides (
       template_id TEXT PRIMARY KEY, action TEXT NOT NULL, fields TEXT NOT NULL DEFAULT '{}', updated_by TEXT, updated_at TEXT);
@@ -178,7 +181,10 @@ function createTemplateStore(db, base) {
       ...rows('SELECT id, name FROM schedules WHERE type = ? OR instr(params, ?) > 0', `template:${id}`, q).map(r => ({ kind: 'schedule', id: r.id, name: r.name }))
     ];
     const enabled = new Set(rows('SELECT key FROM builtin_schedules WHERE enabled = 1').map(r => r.key));
-    for (const s of BUILTIN_SCHEDULES) {
+    // the effective list (edited and custom entries) when the schedules module is up, else the factory list
+    let schedules = BUILTIN_SCHEDULES;
+    try { const eff = schedulesSource && schedulesSource(); if (Array.isArray(eff) && eff.length) schedules = eff; } catch { /* factory list */ }
+    for (const s of schedules) {
       if (enabled.has(s.key) && ((s.templates || []).includes(id) || (s.key === 'patch_weekly' && patch))) out.push({ kind: 'builtin_schedule', id: s.key, name: s.name });
     }
     return out;
@@ -216,4 +222,4 @@ function createTemplateStore(db, base) {
   return { catalogue, definition, create, update, clone, remove, restore, references, refresh };
 }
 
-module.exports = { createTemplateStore, StoreError, SHELLS, MAX_SCRIPT };
+module.exports = { createTemplateStore, setSchedulesSource, StoreError, SHELLS, MAX_SCRIPT };

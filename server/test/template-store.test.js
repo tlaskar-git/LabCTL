@@ -239,3 +239,14 @@ test('a runbook step on a removed template fails with a clear message', async t 
   assert.equal(run.status, 'failed');
   assert.equal(run.results[0].hosts[0].error, `Unknown template ${id}`);
 });
+
+test('references: an enabled custom built-in schedule counts as a use of its template', async t => {
+  const { admin } = await setup(t);
+  const made = await admin('POST', '/api/builtin-schedules', { name: 'Mine', cron: '0 5 * * *', steps: [{ template: 'docker_cleanup', params: {} }], scope: { all: true } });
+  assert.equal(made.status, 200, JSON.stringify(made.data));
+  const key = made.data.key || made.data.schedule?.key;
+  assert.ok(key, JSON.stringify(made.data));
+  assert.equal((await admin('POST', `/api/builtin-schedules/${key}/enable`, { cron: '0 5 * * *' })).status, 200);
+  const refs = (await admin('GET', '/api/templates/docker_cleanup')).data.references;
+  assert.ok(refs.some(r => r.kind === 'builtin_schedule' && r.id === key), JSON.stringify(refs));
+});

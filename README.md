@@ -393,11 +393,15 @@ Use **Test** on each channel. The last error is kept on the channel row. A **Dai
 
 Templates are scripts that run through the normal job path. Press Ctrl+K (Cmd+K on macOS) anywhere, pick an action, a host or group and the parameters, and the job drawer opens with the live output. See [docs/templates.md](docs/templates.md) for parameters, secrets, drain and runbook step kinds.
 
+Admins create, edit, clone, hide, delete and restore templates on the Templates page. An edit of a built-in template is stored in the database as an override, so the shipped files stay unchanged and **Restore default** brings the original back. A hidden built-in template moves to **Hidden templates** and can be restored. Custom templates are deleted for good after the name is typed. Before a template used by a runbook, patch policy or schedule goes, the dialog lists those uses and asks for an extra tick.
+
 Jobs on several hosts form a group. The group view shows each host and offers **Retry failed**. Log search finds text across job logs.
 
 The **Actions** page job types (Linux Update, Docker Update, Run Backup, Reboot, List Crons, Custom Command, Service Control, Disk Cleanup, File Browser, Windows Update, Auto-Login) run on every v2 agent and on SSH hosts: the server turns each one into a script at send time (see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#jobs-and-job-logs)). Each job card on the Actions page shows the status, host, elapsed time, bytes received, exit code and the output as it arrives, with **Open in the drawer** and **Download** (the full log from the server). A job never waits silently: for an offline host it says `Host is offline, the job starts when it reconnects`, a sent job shows how long it waits for the first output, and an agent that does not answer within 120 s (setting `job_sent_timeout_s`) fails the job with that reason.
 
 Schedules use standard five-field cron in the `timezone` setting (default `Europe/Dublin`). A run found more than 2 minutes late is recorded as `missed` and not run.
+
+Admins edit the built-in schedules on the Schedules page: name, description, time (daily, weekly, monthly or cron, with the next three runs shown), hosts, templates and their parameters, the health report channels and sections, and the weekly patching ring policy settings. **Remove** switches a built-in off and moves it to **Removed built-in schedules**, where **Restore** brings back the defaults. Removing weekly patching also deletes its three ring policies and needs `DELETE` typed. **Reset to defaults** drops the edits. **New schedule** adds your own entry to the same list. It runs the same way, and **Delete** removes it for good after its name is typed. Operators switch schedules on and off and run them now. Viewers only read. A schedule whose template was removed shows a **Missing template** warning, and its runs fail with that message.
 
 ## Users and roles
 
@@ -467,6 +471,7 @@ All `/api/*` routes need a session except sign-in and `GET /api/health`. The ful
 | GET | `/api/health` | Public liveness: status, version, uptime, database. |
 | GET | `/api/hosts` | List hosts. |
 | POST | `/api/templates/:id/run` | Run an action on hosts. |
+| POST, PUT, DELETE | `/api/templates`, `/api/templates/:id` | Create, edit, hide or delete a template (admin). |
 | GET | `/api/jobs/:id/stream` | Live job output (SSE). |
 | GET | `/api/alerts` | Active alerts. |
 | GET | `/api/compliance` | Compliance report. |

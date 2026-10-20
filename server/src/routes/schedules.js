@@ -8,19 +8,40 @@ module.exports = (app, ctx) => {
   installMaintenanceGuard(ctx);
   const builtins = createBuiltins(ctx);
   ctx.builtins = builtins;
+  require('../template-store').setSchedulesSource(() => builtins.list()); // template delete warns about edited and custom schedules too
   builtins.startTimer();
   ctx.onClose(() => builtins.stopTimer());
-  const reply = (res, r) => (r.view ? res.json(r.result ? { ...r.view, result: r.result } : r.view) : res.status(r.status).json({ error: r.error }));
-  app.get('/api/builtin-schedules', (req, res) => res.json(builtins.list()));
+  const reply = (res, r) => {
+    if (r.view) return res.json(r.result ? { ...r.view, result: r.result } : r.view);
+    const { status, ...body } = r;
+    res.status(status).json(body);
+  };
+  // Viewers read, operators enable, disable and run, admins change the catalogue.
+  const admin = ctx.requireRole('admin');
+  const actor = req => req.user?.username;
+  app.get('/api/builtin-schedules', (req, res) => res.json(req.query.removed ? builtins.removed() : builtins.list()));
+  app.get('/api/builtin-schedules/preview', (req, res) => {
+    try { res.json({ runs: builtins.preview(String(req.query.cron || '')), timezone: ctx.settings.get('timezone') || 'Europe/Dublin' }); } catch (err) { res.status(400).json({ error: `Invalid cron: ${err.message}` }); }
+  });
+  app.get('/api/builtin-schedules/:key', (req, res) => {
+    const def = builtins.get(req.params.key, { hidden: true });
+    return def ? res.json(builtins.view(def)) : res.status(404).json({ error: 'Unknown built-in schedule' });
+  });
+  app.post('/api/builtin-schedules', admin, (req, res) => reply(res, builtins.create(req.body, actor(req))));
+  app.put('/api/builtin-schedules/:key', admin, (req, res) => reply(res, builtins.edit(req.params.key, req.body, actor(req))));
+  app.delete('/api/builtin-schedules/:key', admin, (req, res) => reply(res, builtins.remove(req.params.key, { confirm: req.body?.confirm }, actor(req))));
+  app.post('/api/builtin-schedules/:key/restore', admin, (req, res) => reply(res, builtins.restore(req.params.key, actor(req))));
+  app.post('/api/builtin-schedules/:key/reset', admin, (req, res) => reply(res, builtins.reset(req.params.key, actor(req))));
   app.post('/api/builtin-schedules/:key/enable', (req, res) => {
-    // The weekly patching schedule reboots hosts, so it needs its key typed.
-    if (req.params.key === 'patch_weekly' && req.body?.confirm !== 'patch_weekly') {
-      return res.status(400).json({ error: 'Typed confirmation required', confirm_required: true, confirm_word: 'patch_weekly' });
+    // A guarded schedule (weekly patching reboots hosts, or a step runs a guard template) needs its word typed.
+    const def = builtins.get(req.params.key);
+    const view = def && builtins.view(def);
+    if (view?.guarded && req.body?.confirm !== view.confirm_word) {
+      return res.status(400).json({ error: 'Typed confirmation required', confirm_required: true, confirm_word: view.confirm_word });
     }
     reply(res, builtins.enable(req.params.key, { cron: req.body?.cron }));
   });
   app.post('/api/builtin-schedules/:key/disable', (req, res) => reply(res, builtins.disable(req.params.key)));
-  app.put('/api/builtin-schedules/:key', (req, res) => reply(res, builtins.update(req.params.key, { cron: req.body?.cron })));
   app.post('/api/builtin-schedules/:key/run', async (req, res, next) => {
     try { reply(res, await builtins.runNow(req.params.key, req.user?.username)); } catch (err) { next(err); }
   });
