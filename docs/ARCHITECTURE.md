@@ -219,6 +219,8 @@ SSH secrets: the dispatcher calls `ctx.templateSecrets.take(jobId)`. For a Pytho
 values travel in a prelude on standard input and never appear on the command line. Credentials are opened in memory per
 connection. A credential typed into the form and not saved lives in server memory until restart.
 
+Shared credential library (`src/credentials.js`, `routes/credentials.js`): rows with `purpose = 'shared'` and no `host_id` hold a unique name (case-insensitive partial index), `username`, `domain`, `note`, `kind` (`password` or `ssh_key`) and a sealed JSON `{password}` or `{private_key, passphrase}` plus optional `sudo_password`. The columns `domain`, `note`, `last_used` and `last_purpose` are added idempotently at route load. `host_id` was never NOT NULL, so no table rebuild is needed. Other modules open a credential with `ctx.credentials.use(id, purposeText)`, which returns the secret object in memory and stamps `last_used`. The audit log records the credential name and id only.
+
 ## Templates
 
 `server/src/templates/manifest.json` lists the actions. `ctx.templates.run` resolves hosts, checks the guard, and creates
@@ -375,7 +377,7 @@ All routes need a session unless noted. Role is the minimum. Roles: V viewer, O 
 | Health (public) | `GET /api/health` (liveness), `GET /api/health/hosts` |
 | Users (A) | `GET/POST /api/users`, `PUT/DELETE /api/users/:id` |
 | Tokens (A) | `GET/POST /api/tokens`, `POST /api/tokens/:id/rotate`, `POST /api/tokens/:id/revoke` |
-| Credentials (A) | `GET/POST /api/credentials`, `DELETE /api/credentials/:id` |
+| Credentials (A) | `GET/POST /api/credentials`, `PUT/DELETE /api/credentials/:id`, `GET /api/credentials/names` (operator, names only) |
 | Settings | `GET /api/settings`, `PUT /api/settings` (A) |
 | Hosts | `GET/POST /api/hosts`, `PATCH/DELETE /api/hosts/:id`, `POST /api/hosts/bulk-remove`, `PUT /api/hosts/:id/group`, `GET /api/blocklist`, `DELETE /api/blocklist/:id` (A) |
 | Tags, groups | `/api/tags`, `/api/groups` (GET, POST, PUT, DELETE) |

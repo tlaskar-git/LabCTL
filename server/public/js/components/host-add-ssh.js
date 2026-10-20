@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'preact/hooks';
+import { useState } from 'preact/hooks';
 import { api } from '../api.js';
 import { html, Modal } from '../ui.js';
+import { CredentialPicker } from './credential-picker.js';
 
 const field = (label, input) => html`<div class="form-group"><label class="form-label">${label}</label>${input}</div>`;
 
@@ -8,12 +9,9 @@ const field = (label, input) => html`<div class="form-group"><label class="form-
 export function AddSshHost({ onClose, onCreated, addToast, isAdmin }) {
   const [f, setF] = useState({ name: '', address: '', port: 22, os: 'linux', username: '', auth: 'password', password: '',
     private_key: '', passphrase: '', credential_id: '', save_credential: false, provider: '', region: '', plan: '', notes: '' });
-  const [creds, setCreds] = useState([]);
   const [busy, setBusy] = useState(false);
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
   const text = (k, extra = {}) => ({ class: 'input', value: f[k], onInput: e => set(k, e.target.value), ...extra });
-
-  useEffect(() => { if (isAdmin) api('/api/credentials').then(setCreds).catch(() => {}); }, []);
 
   const submit = async () => {
     setBusy(true);
@@ -43,9 +41,7 @@ export function AddSshHost({ onClose, onCreated, addToast, isAdmin }) {
       ${field('Port', html`<input class="input" type="number" min="1" max="65535" value=${f.port} onInput=${e => set('port', e.target.value)}/>`)}
       ${field('User', html`<input ...${text('username')}/>`)}
     </div>
-    ${isAdmin && creds.length > 0 && field('Use a stored credential', html`<select class="select" value=${f.credential_id} onChange=${e => set('credential_id', e.target.value)}>
-      <option value="">Enter one below</option>
-      ${creds.map(c => html`<option key=${c.id} value=${c.id}>${c.name || c.hostname} (${c.username})</option>`)}</select>`)}
+    <${CredentialPicker} value=${f.credential_id} onChange=${v => set('credential_id', v.credential_id)} label="Use a saved credential"/>
     ${!f.credential_id && html`
       <div class="form-row" style=${{ marginTop: 12 }}>
         ${field('Sign in with', html`<select class="select" value=${f.auth} onChange=${e => set('auth', e.target.value)}>

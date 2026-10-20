@@ -270,6 +270,10 @@ The wizard runs a pre-flight check (reachability, host key, privileges, Python),
 
 For machines that do not run an agent, use **Add SSH host** on the Hosts page. LabCTL polls uptime, load, memory and disk every 60 seconds and runs jobs over SSH. The host key is recorded on first connect (trust on first use) and a change is refused. Secrets for templates reach the remote script on standard input, never on the command line.
 
+### Saved credentials
+
+The **Credentials** page (admin) keeps a library of named logins that belong to no host, for example `root` or `domain admin`. Each has a name, a username, a password or a private key (with an optional passphrase), an optional sudo password, an optional domain and a note. Names are unique. Secrets are sealed with AES-256-GCM and never shown again. Editing keeps the saved secret unless you send a new one, and deleting needs the credential name typed in. A credential that a host still uses cannot be deleted. Operators can pick a saved credential by name (for example in **Add SSH host**) without seeing any detail. Logins that auto-login or deploy save for one host stay listed under **Host credentials**.
+
 ### Remove a host
 
 Removing a host needs admin and the host name typed as confirmation. Choose **Remove** or **Uninstall agent and remove**. A removed agent host goes on the blocklist, so a reconnecting agent is refused with close code 4403 until an admin takes it off **Blocklist**. Removed SSH hosts are not blocklisted. Bulk removal needs `REMOVE <n> HOSTS`.
