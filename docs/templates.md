@@ -26,14 +26,36 @@ job log or the audit log.
 
 | Call | Purpose |
 |---|---|
-| `GET /api/templates?os=&kind=&category=&host_id=` | List templates (host_id filters by the host's OS). |
-| `GET /api/templates/:id?script=1` | One template, optionally with the script text. |
+| `GET /api/templates?os=&kind=&category=&host_id=&hidden=1` | List templates (host_id filters by the host's OS). Each has `source` (`builtin`, `edited`, `custom`) and `editable`. `hidden=1` adds hidden built-ins with `hidden: true`. |
+| `GET /api/templates/:id` | One template and `references` (runbooks, patch policies, schedules, built-in schedules that use it). Admins also get `script` (the editable text, without the prelude) and `locked_guard`. |
+| `POST /api/templates` | Admin. Create a custom template: `{ name, description, category, os, kinds, shell, script, params, guard, drain }`. |
+| `PUT /api/templates/:id` | Admin. Edit a custom template, or store an override for a built-in. Fields left out keep their value. |
+| `POST /api/templates/:id/clone` | Admin. Custom copy of any template. |
+| `DELETE /api/templates/:id` | Admin. `{ confirm, force_referenced }`. Custom: deleted, `confirm` must equal the name. Built-in: hidden. A template in use needs `force_referenced: true` (409 with `references` otherwise). |
+| `POST /api/templates/:id/restore` | Admin. Hidden built-in: shown again (edits kept). Edited built-in: back to the manifest. |
 | `GET /api/templates/runbooks` | Runbook definitions. |
 | `POST /api/templates/:id/run` | `{ host_ids \| group \| tag, params, secrets: {NAME: credential_id}, drain, force, confirm }`. Returns one job per host. |
 
 Rules: operator or admin. `admin: true` templates (runner removal) need admin. A template with `guard: true`, and any
 run with `force: true`, needs `confirm` to equal the host name. A run over several hosts needs the template id instead.
 `drain` and `force` exist only on templates with `drain: true`.
+
+## Editing in the app
+
+The files in this folder are never written by the app. An edit of a built-in is a row in `template_overrides`
+(name, description, category, os, kinds, params, drain, guard, and the script text when it differs from the file). The
+shell of a built-in cannot change. Hiding a built-in is a soft delete. Custom templates live in `custom_templates`;
+their shell can be `bash`, `powershell` or `python` (Python gets no prelude).
+
+Validation: the script must not be empty, larger than 200 KB or contain a NUL byte. Parameter names match
+`^[A-Z][A-Z0-9_]{0,31}$` and must not be `DRAIN` or `FORCE`. Types are `string` (text), `int` (number), `bool` (yes or
+no) and `enum` (select, with 1 to 50 options). There is no secret type. A parameter can be `required`. Bash scripts
+are checked with `bash -n` when bash exists on the server; findings come back as warnings and never block the save.
+A built-in template with `guard: true` keeps it. Writes need the admin role; operators run templates; nobody but an
+admin reads script text through the API. The audit log records who changed which template, the action, the script
+size and a SHA-256 prefix, never the script text.
+
+A runbook step whose template was hidden or deleted fails with `Unknown template <id>`.
 
 ## Drain and force
 

@@ -218,7 +218,7 @@ async function setup(t) {
 }
 
 test('GET /api/templates filters by os, kind, category and host', async t => {
-  const { s, op, addHost } = await setup(t);
+  const { s, admin, op, addHost } = await setup(t);
   const names = r => r.data.map(x => x.id);
   assert.ok(names(await op('GET', '/api/templates?os=darwin')).includes('mac_update'));
   assert.ok(!names(await op('GET', '/api/templates?os=darwin')).includes('win_update'));
@@ -228,8 +228,9 @@ test('GET /api/templates filters by os, kind, category and host', async t => {
   const forHost = await op('GET', '/api/templates?host_id=h-win');
   assert.ok(names(forHost).includes('win_update') && !names(forHost).includes('mac_update'));
   assert.ok(forHost.data.every(x => !('file' in x)));
-  const one = await op('GET', '/api/templates/mac_update?script=1');
+  const one = await admin('GET', '/api/templates/mac_update');
   assert.match(one.data.script, /softwareupdate/);
+  assert.equal((await op('GET', '/api/templates/mac_update')).data.script, undefined); // script text is admin only
   assert.equal((await op('GET', '/api/templates/nope')).status, 404);
   assert.ok((await op('GET', '/api/templates/runbooks')).data.some(r => r.id === 'ci_host_patch_cycle'));
   assert.ok(s.ctx.templates.catalogue.templates.length >= REQUIRED_IDS.length);

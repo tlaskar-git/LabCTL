@@ -16,7 +16,8 @@ const ID_RE = /^[a-z][a-z0-9_]{1,63}$/;
 const RESERVED = ['DRAIN', 'FORCE'];
 const DRAIN_TIMEOUT = { name: 'DRAIN_TIMEOUT_MIN', type: 'int', default: 120, label: 'Drain timeout (minutes)' };
 
-const libFor = shell => (shell === 'powershell' ? '_lib.ps1' : '_lib.sh');
+// Python scripts (custom templates only) get no prelude.
+const libFor = shell => (shell === 'powershell' ? '_lib.ps1' : shell === 'python' ? null : '_lib.sh');
 
 function validateManifest(manifest, dir = __dirname) {
   const errors = [];
@@ -116,15 +117,20 @@ function load(dir = __dirname) {
   return { templates, byId, runbooks, dir };
 }
 
-// The script the agent receives: the shared prelude followed by the template file.
+const readText = (catalogue, f) => fs.readFileSync(path.join(catalogue.dir, f), 'utf8').replace(/\r\n/g, '\n');
+
+// The editable script text: an operator edit (tpl.text, from template-store.js) or the template file.
+const body = (catalogue, tpl) => (tpl.text !== undefined ? tpl.text.replace(/\r\n/g, '\n') : readText(catalogue, tpl.file));
+
+// The script the agent receives: the shared prelude followed by the template script.
 function script(catalogue, tpl) {
-  const read = f => fs.readFileSync(path.join(catalogue.dir, f), 'utf8').replace(/\r\n/g, '\n');
-  return `${read(libFor(tpl.shell))}\n${read(tpl.file)}`;
+  const lib = libFor(tpl.shell);
+  return lib ? `${readText(catalogue, lib)}\n${body(catalogue, tpl)}` : body(catalogue, tpl);
 }
 
-// Public view of a template (no file path).
+// Public view of a template (no file path, no script text).
 function describe(tpl) {
-  const { file, ...rest } = tpl; // eslint-disable-line no-unused-vars
+  const { file, text, ...rest } = tpl; // eslint-disable-line no-unused-vars
   return rest;
 }
 
@@ -155,7 +161,11 @@ function buildEnv(tpl, input = {}) {
     }
     env[`LABCTL_P_${name}`] = value;
   }
+  for (const p of tpl.params) {
+    if (p.required && (env[`LABCTL_P_${p.name}`] ?? String(p.default ?? '')) === '') throw new ParamError(`${p.name} is required`);
+  }
   return env;
 }
 
-module.exports = { load, validateManifest, validateRunbook, script, describe, buildEnv, ParamError, libFor, OS, KINDS, STEP_KINDS };
+module.exports = { load, validateManifest, validateRunbook, script, body, describe, buildEnv, ParamError, libFor,
+  OS, KINDS, STEP_KINDS, CATEGORIES, PARAM_TYPES, RESERVED, DRAIN_TIMEOUT };

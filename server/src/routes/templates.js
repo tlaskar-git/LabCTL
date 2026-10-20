@@ -1,15 +1,18 @@
 // Job action templates: list them, and run one on hosts chosen by id, group or tag.
 // A run creates one job per host through the normal job path. Secrets come from stored credentials, are put into the
 // job environment only when the job is sent to the agent, and are never written to the jobs table, the log or the audit.
+// Admins also create, edit, clone, hide, delete and restore templates here (template-store.js keeps the built-in files untouched).
 const catalogue = require('../templates');
 const { guardMiddleware } = require('../guards');
+const { createTemplateStore, StoreError } = require('../template-store');
 
 const SECRET_TTL_MS = 6 * 3600 * 1000;
 
 module.exports = (app, ctx) => {
   const { db, jobs } = ctx;
-  const cat = catalogue.load();
-  ctx.templates = { catalogue: cat, run: startRun, resolveHosts };
+  const store = createTemplateStore(db, catalogue.load());
+  const cat = store.catalogue; // live: rebuilt in place after every edit
+  ctx.templates = { catalogue: cat, run: startRun, resolveHosts, store };
 
   // ---- secrets: held in memory until the run_job frame is sent -------------------------------------------------
   const pending = new Map(); // job_id -> { env, at }
@@ -104,16 +107,46 @@ module.exports = (app, ctx) => {
       if (!h) return res.status(404).json({ error: 'Host not found' });
       os = h.os || os;
     }
-    res.json(cat.templates
+    const list = req.query.hidden === '1' ? [...cat.all.values()] : cat.templates;
+    res.json(list
       .filter(t => (!os || t.os.includes(os)) && (!kind || t.kinds.includes(kind)) && (!category || t.category === category))
       .map(catalogue.describe));
   });
   app.get('/api/templates/runbooks', (req, res) => res.json(cat.runbooks));
+  // The script text (without the prelude) is for admins only: the run path never needs it on the client.
   app.get('/api/templates/:id', (req, res) => {
-    const tpl = cat.byId.get(req.params.id);
+    const tpl = cat.all.get(req.params.id);
     if (!tpl) return res.status(404).json({ error: 'Template not found' });
-    res.json(req.query.script ? { ...catalogue.describe(tpl), script: catalogue.script(cat, tpl) } : catalogue.describe(tpl));
+    const out = req.user?.role === 'admin' ? store.definition(tpl) : catalogue.describe(tpl);
+    res.json({ ...out, references: store.references(tpl.id) });
   });
+
+  // ---- editing (admin) ---------------------------------------------------------------------------------------------
+  const admin = ctx.requireRole('admin');
+  // The audit middleware stores the request body: swap the script for its size before the response is sent.
+  const input = req => {
+    const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? { ...req.body } : {};
+    if (typeof req.body?.script === 'string') req.body.script = `[${Buffer.byteLength(req.body.script)} bytes]`;
+    return body;
+  };
+  const write = (action, fn) => (req, res) => {
+    try {
+      const r = fn(input(req), req);
+      const id = r.tpl.id;
+      ctx.audit(req.user?.username, `template.${typeof action === 'function' ? action(r) : action}`, null,
+        { template: id, name: r.tpl.name, source: r.tpl.source, ...(r.fp || {}), ...(r.script_changed ? { script_changed: true } : {}),
+          ...(r.references?.length ? { references: r.references.length } : {}) });
+      res.json({ template: catalogue.describe(cat.all.get(id) || r.tpl), warnings: r.warnings || [], action: r.action });
+    } catch (err) {
+      if (!(err instanceof StoreError)) throw err;
+      res.status(err.status).json({ error: err.message, ...err.extra });
+    }
+  };
+  app.post('/api/templates', admin, write('create', (body, req) => store.create(body, req.user?.username)));
+  app.put('/api/templates/:id', admin, write('edit', (body, req) => store.update(req.params.id, body, req.user?.username)));
+  app.post('/api/templates/:id/clone', admin, write('clone', (body, req) => store.clone(req.params.id, req.user?.username)));
+  app.delete('/api/templates/:id', admin, write(r => r.action, (body, req) => store.remove(req.params.id, body, req.user?.username)));
+  app.post('/api/templates/:id/restore', admin, write(r => r.action, (body, req) => store.restore(req.params.id)));
 
   const prepare = (req, res, next) => {
     const tpl = cat.byId.get(req.params.id);

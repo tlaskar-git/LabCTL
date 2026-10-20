@@ -14,6 +14,7 @@ import { ParamFields, compatible, defaultsOf, targetHosts, confirmWord, needsCon
 const INIT = { step: 'search', query: '', idx: 0, action: null, target: null, label: '', values: {}, drain: false, confirm: '', busy: false, error: '' };
 const MAX_INLINE = 6;
 const cache = { templates: null };
+window.addEventListener('labctl:templates-changed', () => { cache.templates = null; }); // the Templates page edited the list
 const FOCUSABLE = 'input, select, button, textarea';
 
 export function Palette() {

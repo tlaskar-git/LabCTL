@@ -1,6 +1,10 @@
 import { useState, useEffect, useMemo } from 'preact/hooks';
 import { api } from '../api.js';
 import { html, Modal } from '../ui.js';
+import { useAppState } from '../state.js';
+import { Chip } from '../components/ui-kit.js';
+import { TemplateEditor } from '../components/template-editor.js';
+import { TemplateMenu, DeleteDialog } from '../components/template-actions.js';
 import { rank } from '../components/palette-search.js';
 import { ParamFields, compatible, defaultsOf, targetHosts, confirmWord, needsConfirm, launch } from '../components/palette-form.js';
 
@@ -89,18 +93,39 @@ function RunDialog({ tpl, hosts, onClose, addToast }) {
   <//>`;
 }
 
+const SOURCE = { builtin: ['Built-in', 'muted'], edited: ['Edited', 'warn'], custom: ['Custom', 'info'] };
+const catLabel = c => CATEGORY[c] || (c ? c[0].toUpperCase() + c.slice(1) : 'Other');
+// The command palette keeps its own copy of the list: tell it to fetch again.
+const changed = () => window.dispatchEvent(new Event('labctl:templates-changed'));
+
 // ── Templates page: the library of job action templates ────────────────
 export default function TemplatesPage({ hosts = [], addToast }) {
-  const [templates, setTemplates] = useState([]);
+  const { user } = useAppState();
+  const isAdmin = user?.role === 'admin';
+  const [all, setAll] = useState([]);
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
   const [os, setOs] = useState('');
   const [open, setOpen] = useState(null);
+  const [editing, setEditing] = useState(undefined); // undefined: closed, null: new, id: edit
+  const [removing, setRemoving] = useState(null);
 
-  useEffect(() => { api('/api/templates').then(setTemplates).catch(e => setError(e.message)); }, []);
+  const load = () => api('/api/templates?hidden=1').then(setAll).catch(e => setError(e.message));
+  useEffect(() => { load(); }, []);
+  const refresh = () => { load(); changed(); };
 
-  const shown = useMemo(() => rank(templates.filter(t => !os || t.os.includes(os)), query, t => `${t.name} ${t.id} ${t.description} ${t.category} ${t.os.join(' ')} ${t.kinds.join(' ')}`, 200), [templates, query, os]);
-  const groups = Object.keys(CATEGORY).map(c => ({ key: c, items: shown.filter(t => t.category === c) })).filter(g => g.items.length);
+  const templates = all.filter(t => !t.hidden);
+  const hidden = all.filter(t => t.hidden);
+  const shown = useMemo(() => rank(templates.filter(t => !os || t.os.includes(os)), query, t => `${t.name} ${t.id} ${t.description} ${t.category} ${t.os.join(' ')} ${t.kinds.join(' ')}`, 200), [all, query, os]);
+  const cats = [...Object.keys(CATEGORY), ...[...new Set(templates.map(t => t.category))].filter(c => !CATEGORY[c]).sort()];
+  const groups = cats.map(c => ({ key: c, items: shown.filter(t => t.category === c) })).filter(g => g.items.length);
+
+  const act = async (fn, msg) => { try { await fn(); addToast(msg); refresh(); } catch (e) { addToast(e.message, 'error'); } };
+  const clone = t => act(() => api(`/api/templates/${encodeURIComponent(t.id)}/clone`, { method: 'POST' }), `${t.name} cloned`);
+  const restore = t => act(() => api(`/api/templates/${encodeURIComponent(t.id)}/restore`, { method: 'POST' }), `${t.name} restored`);
+  const menu = t => [['Run', () => setOpen(t)], ['Edit', () => setEditing(t.id)], ['Clone', () => clone(t)],
+    ...(t.source === 'edited' ? [['Restore default', () => restore(t)]] : []),
+    [t.source === 'custom' ? 'Delete' : 'Hide', () => setRemoving(t), true]];
 
   return html`<div>
     <div class="page-header">
@@ -108,29 +133,46 @@ export default function TemplatesPage({ hosts = [], addToast }) {
         <div class="page-title">Template library</div>
         <div class="page-desc">${templates.length} job action templates. Pick one, choose hosts, group or tag, and run it. Ctrl+K does the same from anywhere.</div>
       </div>
+      ${isAdmin && html`<button type="button" class="btn btn-primary" onClick=${() => setEditing(null)}>New template</button>`}
     </div>
-    <div class="form-row">
+    <div class="form-row tpl-filters">
       <input class="input" type="search" aria-label="Search templates" placeholder="Search by name, id, kind or OS" value=${query} onInput=${e => setQuery(e.target.value)}/>
       <select class="select input" aria-label="Filter by OS" value=${os} onChange=${e => setOs(e.target.value)} style=${{ maxWidth: 180 }}>
         <option value="">All systems</option>${Object.entries(OS_LABEL).map(([k, v]) => html`<option key=${k} value=${k}>${v}</option>`)}
       </select>
     </div>
     ${error && html`<div class="card" role="alert">${error}</div>`}
-    ${groups.map(g => html`<div key=${g.key} style=${{ marginBottom: 20 }}>
-      <div class="nav-section" style=${{ padding: '0 0 8px' }}>${CATEGORY[g.key]} (${g.items.length})</div>
+    ${groups.map(g => html`<section key=${g.key} style=${{ marginBottom: 20 }} aria-label=${catLabel(g.key)}>
+      <div class="nav-section" style=${{ padding: '0 0 8px' }}>${catLabel(g.key)} (${g.items.length})</div>
       <div class="actions-grid">
-        ${g.items.map(t => html`<button key=${t.id} class="action-tile" onClick=${() => setOpen(t)} aria-label=${`Run ${t.name}`}>
-          <div class="action-tile-label">${t.name}</div>
-          <div class="action-tile-desc">${t.description}</div>
-          <div style=${{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
-            ${t.os.map(o => html`<span key=${o} class="badge badge-pending">${OS_LABEL[o]}</span>`)}
-            ${t.guard && html`<span class="badge badge-failed">guarded</span>`}
-            ${t.drain && html`<span class="badge badge-running">drain</span>`}
-          </div>
-        </button>`)}
+        ${g.items.map(t => html`<div key=${t.id} class="tpl-card">
+          <button class="action-tile" onClick=${() => setOpen(t)} aria-label=${`Run ${t.name}`}>
+            <div class="action-tile-label">${t.name}</div>
+            <div class="action-tile-desc">${t.description}</div>
+            <div style=${{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6, justifyContent: 'center' }}>
+              ${SOURCE[t.source] && html`<${Chip} tone=${SOURCE[t.source][1]}>${SOURCE[t.source][0]}<//>`}
+              ${t.os.map(o => html`<span key=${o} class="badge badge-pending">${OS_LABEL[o]}</span>`)}
+              ${t.guard && html`<span class="badge badge-failed">guarded</span>`}
+              ${t.drain && html`<span class="badge badge-running">drain</span>`}
+            </div>
+          </button>
+          ${isAdmin && html`<${TemplateMenu} tpl=${t} items=${menu(t)}/>`}
+        </div>`)}
       </div>
-    </div>`)}
+    </section>`)}
     ${templates.length > 0 && shown.length === 0 && html`<div class="card empty-state"><div class="empty-state-title">No template matches</div></div>`}
+    ${isAdmin && hidden.length > 0 && html`<section class="tpl-hidden" aria-labelledby="tpl-hidden-h">
+      <h2 id="tpl-hidden-h" class="nav-section" style=${{ padding: '0 0 8px' }}>Hidden templates (${hidden.length})</h2>
+      ${hidden.map(t => html`<div key=${t.id} class="tpl-hidden-row">
+        <span><b>${t.name}</b> <span class="tpl-hint">${t.id}</span></span>
+        <button type="button" class="btn btn-sm" aria-label=${`Restore ${t.name}`} onClick=${() => restore(t)}>Restore</button>
+      </div>`)}
+    </section>`}
     ${open && html`<${RunDialog} tpl=${open} hosts=${hosts} addToast=${addToast} onClose=${() => setOpen(null)}/>`}
+    ${editing !== undefined && html`<${TemplateEditor} id=${editing} categories=${cats} addToast=${addToast} onSaved=${refresh}
+      onClose=${() => setEditing(undefined)}
+      onTestRun=${async id => { const list = await api('/api/templates'); const t = list.find(x => x.id === id); setEditing(undefined); if (t) setOpen(t); }}/>`}
+    ${removing && html`<${DeleteDialog} tpl=${removing} addToast=${addToast} onDone=${refresh} onClose=${() => setRemoving(null)}/>`}
   </div>`;
 }
+
