@@ -80,7 +80,7 @@ export default function ChannelsPage({ addToast }) {
         ${field('From', 'from', { placeholder: 'labctl@example.test' })}${field('To (comma separated)', 'to', { placeholder: 'ops@example.test' })}
         <label class="checkbox-row"><input type="checkbox" checked=${form.config.reject_unauthorized !== false} onChange=${e => cfg('reject_unauthorized', e.target.checked)}/> Verify the server certificate (TLS and STARTTLS)</label>`}
       ${form.kind === 'webhook' && html`
-        <div class="form-row">${field('URL', 'url', { placeholder: 'https://n8n.example.test/webhook/labctl' })}
+        <div class="form-row">${field('URL', 'url', { placeholder: 'n8n.example.test/webhook/labctl (start with the scheme)' })}
           <div class="form-group"><label class="form-label">Method</label><select class="select input" value=${form.config.method} onChange=${e => cfg('method', e.target.value)}><option>POST</option><option>PUT</option><option>PATCH</option></select></div></div>
         <div class="form-group"><label class="form-label">Headers (one per line, Name: value, values are stored sealed)</label>
           <textarea class="textarea" rows="3" value=${form.config.headers} onInput=${e => cfg('headers', e.target.value)}/></div>

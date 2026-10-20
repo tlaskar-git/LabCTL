@@ -102,7 +102,7 @@ function Settings({ channels, addToast }) {
       <div class="form-group"><label class="form-label">Runner _work limit (GB)</label><input class="input" type="number" value=${c.runner_work_limit_gb} onInput=${e => set('runner_work_limit_gb', e.target.value)}/></div>
       <div class="form-group"><label class="form-label">Docker disk limit (GB)</label><input class="input" type="number" value=${c.docker_disk_limit_gb} onInput=${e => set('docker_disk_limit_gb', e.target.value)}/></div>
     </div>
-    <div class="form-group"><label class="form-label">LabCTL address used in notice links</label><input class="input" placeholder="https://labctl.example.test" value=${c.base_url} onInput=${e => set('base_url', e.target.value)}/></div>
+    <div class="form-group"><label class="form-label">LabCTL address used in notice links (start with the scheme)</label><input class="input" placeholder="labctl.example.test" value=${c.base_url} onInput=${e => set('base_url', e.target.value)}/></div>
     <div class="form-group"><label class="form-label">Default channels</label>
       ${channels.map(ch => html`<label key=${ch.id} class="checkbox-row"><input type="checkbox" checked=${c.default_channels.includes(ch.id)}
         onChange=${() => set('default_channels', c.default_channels.includes(ch.id) ? c.default_channels.filter(x => x !== ch.id) : [...c.default_channels, ch.id])}/> ${ch.name}</label>`)}</div>
