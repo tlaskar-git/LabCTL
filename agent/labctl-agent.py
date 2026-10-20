@@ -2086,7 +2086,8 @@ def _systemd_quote(s):
     return '"%s"' % s.replace("\\", "\\\\").replace('"', '\\"')
 
 
-def install_linux_service(config_path):
+def linux_unit_texts(config_path):
+    """The three systemd unit files. WorkingDirectory= takes the bare path: systemd rejects a quoted one."""
     exe, script = _systemd_quote(sys.executable), _systemd_quote(SCRIPT_PATH)
     cfgq = _systemd_quote(os.path.abspath(config_path))
     units = {
@@ -2094,7 +2095,7 @@ def install_linux_service(config_path):
             "[Unit]\nDescription=LabCTL Agent\nAfter=network-online.target\nWants=network-online.target\n\n"
             "[Service]\nType=simple\nExecStart=%s %s --config %s\nRestart=always\nRestartSec=5\nUser=root\n"
             "WorkingDirectory=%s\nEnvironment=PYTHONUNBUFFERED=1\n\n[Install]\nWantedBy=multi-user.target\n"
-            % (exe, script, cfgq, _systemd_quote(INSTALL_DIR))),
+            % (exe, script, cfgq, INSTALL_DIR)),
         "%s-watchdog.service" % LINUX_UNIT: (
             "[Unit]\nDescription=LabCTL Agent self-update watchdog\n\n[Service]\nType=oneshot\n"
             "ExecStart=%s %s --watchdog --config %s\n" % (exe, script, cfgq)),
@@ -2102,6 +2103,11 @@ def install_linux_service(config_path):
             "[Unit]\nDescription=LabCTL Agent self-update watchdog\n\n[Timer]\nOnBootSec=60\n"
             "OnUnitActiveSec=30\n\n[Install]\nWantedBy=timers.target\n"),
     }
+    return units
+
+
+def install_linux_service(config_path):
+    units = linux_unit_texts(config_path)
     for name, text in units.items():
         with open("/etc/systemd/system/" + name, "w", encoding="utf-8") as f:
             f.write(text)
@@ -2109,7 +2115,13 @@ def install_linux_service(config_path):
     run(["systemctl", "enable", "--now", "%s-watchdog.timer" % LINUX_UNIT], 60)
     run(["systemctl", "enable", LINUX_UNIT], 60)
     run(["systemctl", "restart", LINUX_UNIT], 60)
-    print("Service installed: systemctl status %s" % LINUX_UNIT)
+    time.sleep(3)
+    _rc, state, _err = run(["systemctl", "is-active", LINUX_UNIT], 30)
+    if state.strip() != "active":
+        print("The service did not start. Last log lines:")
+        print(run(["journalctl", "-u", LINUX_UNIT, "-n", "20", "--no-pager"], 30)[1])
+        raise SystemExit(1)
+    print("Service installed and running: systemctl status %s" % LINUX_UNIT)
 
 
 # ---------------------------------------------------------------------------

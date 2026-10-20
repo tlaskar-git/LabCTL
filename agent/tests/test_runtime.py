@@ -336,3 +336,12 @@ class ConfigAndAgent(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class LinuxUnit(unittest.TestCase):
+    def test_working_directory_is_not_quoted(self):
+        # systemd refuses a quoted WorkingDirectory= ('path is not absolute') and then never starts the unit
+        units = A.linux_unit_texts('/opt/labctl/agent/agent.json')
+        text = units['labctl-agent.service']
+        self.assertRegex(text, r'(?m)^WorkingDirectory=[^"\s]')
+        self.assertNotIn('WorkingDirectory="', text)
+        self.assertRegex(text, r'(?m)^ExecStart="')
