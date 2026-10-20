@@ -85,7 +85,24 @@ function openDb(dataDir) {
       db.prepare('INSERT INTO schema_version (version, applied_at) VALUES (?, ?)').run(version, new Date().toISOString());
     })();
   });
+  scrubJobSecrets(db);
   return db;
+}
+
+// v1 stored the auto-login password in the job row. Remove any password or secret key from stored job params.
+function scrubJobSecrets(db) {
+  const rows = db.prepare("SELECT id, params FROM jobs WHERE params LIKE '%password%' OR params LIKE '%secret%'").all();
+  if (!rows.length) return;
+  const upd = db.prepare('UPDATE jobs SET params = ? WHERE id = ?');
+  db.transaction(() => {
+    for (const r of rows) {
+      const p = parseJson(r.params, null);
+      if (!p || typeof p !== 'object') continue;
+      let changed = false;
+      for (const k of Object.keys(p)) if (/password|secret/i.test(k)) { delete p[k]; changed = true; }
+      if (changed) upd.run(JSON.stringify(p), r.id);
+    }
+  })();
 }
 
 // For feature modules: add a column once without editing this file.
