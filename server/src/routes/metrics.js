@@ -1,6 +1,7 @@
 // Monitoring history (v1) and per-host health rows. The v1 GET /api/health rows moved to GET /api/health/hosts.
 const { parseJson } = require('../db');
 const { RANGES, FIXED, DYNAMIC } = require('../metrics');
+const { buildView } = require('../host-view');
 module.exports = (app, ctx) => {
   const { db, agents } = ctx;
   const row = m => ({ id: m.id, host_id: m.host_id, created_at: m.created_at, ...parseJson(m.data, {}) });
@@ -44,19 +45,20 @@ module.exports = (app, ctx) => {
     if (h) res.json({ host_id: h.id, at: h.inventory_at, data: parseJson(h.inventory, {})?.[SLICES[req.params.slice]] ?? null });
   });
 
+  // One row per host from the stored heartbeat, inventory and system_info (src/host-view.js), so an offline host
+  // still shows its last reported values.
   app.get('/api/health/hosts', (req, res) => {
-    const latest = db.prepare('SELECT * FROM metrics WHERE host_id = ? ORDER BY created_at DESC LIMIT 1');
-    res.json(db.prepare('SELECT id, hostname, last_seen FROM hosts').all().map(h => {
-      const lm = latest.get(h.id);
-      const m = lm ? row(lm) : null;
-      const drives = Array.isArray(m?.drives) ? m.drives : [];
-      const maxDisk = drives.reduce((max, d) => Math.max(max, Number(d.percent || 0)), 0);
+    res.json(db.prepare('SELECT * FROM hosts ORDER BY hostname COLLATE NOCASE').all().map(h => {
+      const online = agents.isOnline(h.id);
+      const { net, temps, top_processes, failed_services, containers, ...view } = buildView(h, { full: true, online });
+      const dockerProblems = (containers || []).filter(c => c.state !== 'running' || c.health === 'unhealthy').length;
       const criticals = [];
-      if (maxDisk >= 90) criticals.push(`Disk at ${maxDisk}%`);
-      if (m?.ram_used_percent >= 90) criticals.push(`RAM at ${m.ram_used_percent}%`);
-      if (m?.docker_problem_count > 0) criticals.push(`${m.docker_problem_count} Docker issue(s)`);
-      if (m?.critical_services?.length) criticals.push(`${m.critical_services.length} service issue(s)`);
-      return { host_id: h.id, hostname: h.hostname, online: agents.isOnline(h.id), last_seen: h.last_seen, latest: m, criticals };
+      if (view.disk_max_percent >= 90) criticals.push(`Disk at ${Math.round(view.disk_max_percent)}%`);
+      if (view.ram.percent >= 90) criticals.push(`RAM at ${Math.round(view.ram.percent)}%`);
+      if (dockerProblems > 0) criticals.push(`${dockerProblems} Docker issue(s)`);
+      if (view.failed_services_count > 0) criticals.push(`${view.failed_services_count} failed service(s)`);
+      return { host_id: h.id, hostname: h.hostname, os: h.os, kind: h.kind, online, last_seen: h.last_seen,
+        view: { ...view, docker_problems: dockerProblems }, criticals };
     }));
   });
 };

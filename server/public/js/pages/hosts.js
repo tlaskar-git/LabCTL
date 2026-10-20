@@ -9,8 +9,21 @@ import { HostSettings } from '../components/host-settings.js';
 import { AddSshHost } from '../components/host-add-ssh.js';
 import { DeployActions } from '../components/deploy-actions.js';
 import { filtersFromQuery, fleetHostIds, FLEET_FILTERS } from '../components/host-query.js';
+import { MiniBar, has, orDash, usedOf, uptimeText } from '../components/host-view.js';
 
 const seen = iso => (iso ? iso.slice(0, 19).replace('T', ' ') : '—');
+// CPU, RAM, fullest disk and uptime from host.view. Offline hosts show their last reported values, dimmed.
+function usageCells(h) {
+  const v = h.view || {};
+  const live = h.online || h.status === 'online';
+  const hint = live ? '' : 'Last reported value, the host is offline';
+  const fullest = (v.disks || []).reduce((a, d) => (d.percent !== null && (!a || d.percent > a.percent) ? d : a), null);
+  return html`
+    <td style=${{ opacity: live ? 1 : 0.6 }}><${MiniBar} percent=${v.cpu_percent} title=${hint || (has(v.cpu_cores) ? `${v.cpu_cores} cores` : '')}/></td>
+    <td style=${{ opacity: live ? 1 : 0.6 }}><${MiniBar} percent=${v.ram?.percent} title=${hint || usedOf(v.ram?.used, v.ram?.total) || ''}/></td>
+    <td style=${{ opacity: live ? 1 : 0.6 }}><${MiniBar} percent=${fullest?.percent} title=${hint || (fullest ? `Fullest: ${fullest.mount}` : '')}/></td>
+    <td class="mono" style=${{ whiteSpace: 'nowrap', opacity: live ? 1 : 0.6 }} title=${hint}>${orDash(uptimeText(v.uptime_s))}</td>`;
+}
 const GROUP_COLORS = ['#3b82f6','#22c55e','#f97316','#a855f7','#ef4444','#eab308','#06b6d4','#ec4899'];
 
 // ── Hosts: search, filters, bulk actions, remove ──────────
@@ -111,7 +124,8 @@ export default function HostsPage({ hosts, addToast, currentUser, query }) {
     </td>
     <td>${h.kind}</td>
     <td>${h.os || '—'}</td>
-    <td class="mono">${h.ip || h.system_info?.ip || '—'}</td>
+    <td class="mono">${h.ip || h.view?.ip || '—'}</td>
+    ${usageCells(h)}
     <td>${agentCell(h)}</td>
     <td><${Chips} items=${h.tags}/></td>
     <td><${Chips} items=${h.groups}/></td>
@@ -160,7 +174,7 @@ export default function HostsPage({ hosts, addToast, currentUser, query }) {
           <table>
             <thead><tr>
               <th style=${{ width: 28 }}><input type="checkbox" aria-label="Select all hosts" checked=${allOn} onChange=${toggleAll}/></th>
-              <th>Status</th><th>Host</th><th>Kind</th><th>OS</th><th>Address</th><th>Agent version</th><th>Tags</th><th>Groups</th><th>Last seen</th><th></th>
+              <th>Status</th><th>Host</th><th>Kind</th><th>OS</th><th>Address</th><th>CPU</th><th>RAM</th><th>Disk</th><th>Uptime</th><th>Agent version</th><th>Tags</th><th>Groups</th><th>Last seen</th><th></th>
             </tr></thead>
             <tbody>${rows.map(renderRow)}</tbody>
           </table>

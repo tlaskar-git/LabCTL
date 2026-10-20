@@ -2,6 +2,8 @@ import { useState, useEffect } from 'preact/hooks';
 import { api, downloadBlob } from '../api.js';
 import { html, Icons, StatusBadge, Modal } from '../ui.js';
 import { CronTaskList } from './cron-task-list.js';
+import { fmtBytes, fmtAgo } from './chart-kit.js';
+import { NOT_REPORTED, has, Dash, orDash, Bar, usedOf, uptimeText, loadText, osText, seenText } from './host-view.js';
 
 // ── Host Detail Modal ─────────────────────────────────────
 export function HostDetailModal({ host, onClose, addToast }) {
@@ -13,6 +15,14 @@ export function HostDetailModal({ host, onClose, addToast }) {
   const isOnline = host.online || host.status === 'online';
   const isWindows = (host.os || '').toLowerCase().includes('windows');
   const isLinux = !isWindows;
+  // The list record carries the light view; GET /api/hosts/:id adds containers, processes and network.
+  const [full, setFull] = useState(null);
+  const v = full?.view || host.view || {};
+
+  useEffect(() => {
+    setFull(null);
+    api(`/api/hosts/${encodeURIComponent(host.id)}`).then(setFull).catch(() => {});
+  }, [host.id]);
 
   useEffect(() => {
     api(`/api/jobs?host_id=${host.id}&limit=50`).then(setJobs).catch(() => {});
@@ -28,21 +38,24 @@ export function HostDetailModal({ host, onClose, addToast }) {
   };
 
   const lastJobOfType = (type) => jobs.find(j => j.type === type && j.status === 'completed');
-  const ramPercent = info.ram_mb != null && info.ram_available_mb != null && info.ram_mb > 0 ? Math.round(((info.ram_mb - info.ram_available_mb) / info.ram_mb) * 100) : null;
-  const diskPercent = info.disk_total_gb && info.disk_free_gb ? Math.round(((info.disk_total_gb - info.disk_free_gb) / info.disk_total_gb) * 100) : null;
-
-  const ProgressBar = ({ percent, color }) => (
-    html`<div style=${{ background: 'var(--bg-primary)', borderRadius: 4, height: 6, width: '100%', overflow: 'hidden' }}>
-      <div style=${{ width: `${percent}%`, height: '100%', borderRadius: 4, background: percent > 85 ? 'var(--red)' : percent > 65 ? 'var(--yellow)' : color || 'var(--accent)', transition: 'width 0.3s' }}/>
-    </div>`
-  );
 
   const InfoRow = ({ label, value, mono }) => (
-    html`<div style=${{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--border)' }}>
+    html`<div style=${{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '6px 0', borderBottom: '1px solid var(--border)' }}>
       <span style=${{ fontSize: 12, color: 'var(--text-dim)' }}>${label}</span>
-      <span style=${{ fontSize: 12, color: 'var(--text-primary)', fontFamily: mono ? 'Geist Mono, monospace' : 'inherit' }}>${value || '\u2014'}</span>
+      <span style=${{ fontSize: 12, color: 'var(--text-primary)', textAlign: 'right', fontFamily: mono ? 'Geist Mono, monospace' : 'inherit' }}>${orDash(value)}</span>
     </div>`
   );
+  const Meter = ({ label, percent, detail }) => (
+    html`<div style=${{ marginBottom: 10 }}>
+      <div style=${{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 11 }}>
+        <span style=${{ color: 'var(--text-dim)' }}>${label}</span>
+        <span style=${{ color: 'var(--text-secondary)' }}>${has(percent) ? `${Math.round(percent * 10) / 10}%` : html`<${Dash}/>`}${detail ? ` \u00b7 ${detail}` : ''}</span>
+      </div>
+      <${Bar} percent=${percent}/>
+    </div>`
+  );
+  const cardTitle = { fontSize: 12, fontWeight: 700, marginBottom: 8, color: 'var(--text-secondary)' };
+  const containers = v.containers || [];
 
   const quickActionStyle = { justifyContent: 'center', padding: '8px 6px', fontSize: 11 };
   const QuickActionButton = ({ tooltip, onClick, children }) => (
@@ -65,7 +78,10 @@ export function HostDetailModal({ host, onClose, addToast }) {
               <${StatusBadge} status=${isOnline ? 'online' : 'offline'}/>
             </div>
             <div style=${{ fontSize: 12, color: 'var(--text-dim)', fontFamily: 'Geist Mono, monospace' }}>
-              ${host.os} · ${host.ip || info.ip} · ${info.platform || ''}
+              ${[osText(v) || host.os, v.ip || host.ip || info.ip, v.arch].filter(Boolean).join(' · ')}
+            </div>
+            <div style=${{ fontSize: 11, color: 'var(--text-dim)', marginTop: 2 }}>
+              ${seenText(v, isOnline) || 'No data reported yet'}
             </div>
           </div>
           <button class="btn-close" onClick=${onClose}><${Icons.X}/></button>
@@ -85,75 +101,59 @@ export function HostDetailModal({ host, onClose, addToast }) {
           html`<div>
             
             <div class="card" style=${{ padding: 12, marginBottom: 12 }}>
-              <div style=${{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 6 }}>RAM Usage</div>
-              ${ramPercent !== null ? (
-                html`
-                  <${ProgressBar} percent=${ramPercent}/>
-                  <div style=${{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4 }}>
-                    ${Math.round((info.ram_mb - info.ram_available_mb) / 1024 * 10) / 10}GB / ${Math.round(info.ram_mb / 1024 * 10) / 10}GB (${ramPercent}%)
-                  </div>
-                `
-              ) : html`<span style=${{ fontSize: 12, color: 'var(--text-dim)' }}>N/A</span>`}
+              <div style=${cardTitle}>Usage${!isOnline && v.heartbeat_at ? ' (last reported values)' : ''}</div>
+              <${Meter} label="CPU" percent=${v.cpu_percent} detail=${[loadText(v.load) && `load ${loadText(v.load)}`, has(v.cpu_cores) && `${v.cpu_cores} cores`].filter(Boolean).join(', ')}/>
+              <${Meter} label="RAM" percent=${v.ram?.percent} detail=${usedOf(v.ram?.used, v.ram?.total)}/>
+              ${v.swap?.total === 0 ? html`<div style=${{ fontSize: 11, color: 'var(--text-dim)' }}>Swap: none configured</div>`
+                : html`<${Meter} label="Swap" percent=${v.swap?.percent} detail=${usedOf(v.swap?.used, v.swap?.total)}/>`}
             </div>
 
-            
             <div class="card" style=${{ padding: 12, marginBottom: 12 }}>
-              <div style=${{ fontSize: 12, fontWeight: 700, marginBottom: 8, color: 'var(--text-secondary)' }}>Drives</div>
-              ${(info.drives && info.drives.length > 0) ? info.drives.map((drv, i) => (
-                html`<div key=${i} style=${{ marginBottom: i < info.drives.length - 1 ? 10 : 0 }}>
-                  <div style=${{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                    <span style=${{ fontSize: 11, fontFamily: 'Geist Mono, monospace', color: 'var(--text-primary)' }}>
-                      ${drv.device} (${drv.mount})
-                    </span>
-                    <span style=${{ fontSize: 11, color: 'var(--text-dim)' }}>
-                      ${drv.free_gb}GB free / ${drv.total_gb}GB
-                    </span>
-                  </div>
-                  <${ProgressBar} percent=${drv.percent || 0}/>
-                </div>`
-              )) : (
-                diskPercent !== null ? (
-                  html`<div>
-                    <${ProgressBar} percent=${diskPercent}/>
-                    <div style=${{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4 }}>
-                      ${Math.round((info.disk_total_gb - info.disk_free_gb) * 10) / 10}GB / ${info.disk_total_gb}GB (${diskPercent}%)
-                    </div>
-                  </div>`
-                ) : html`<span style=${{ fontSize: 12, color: 'var(--text-dim)' }}>N/A</span>`
-              )}
+              <div style=${cardTitle}>Drives</div>
+              ${(v.disks || []).length ? v.disks.map((d, i) => html`<div key=${d.mount || i} style=${{ marginBottom: 10 }}>
+                <div style=${{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
+                  <span style=${{ fontSize: 11, fontFamily: 'Geist Mono, monospace', color: 'var(--text-primary)', overflowWrap: 'anywhere' }}>
+                    ${d.mount}${d.device && d.device !== d.mount ? ` (${d.device})` : ''}${d.fs ? ` ${d.fs}` : ''}
+                  </span>
+                  <span style=${{ fontSize: 11, color: 'var(--text-dim)', whiteSpace: 'nowrap' }}>
+                    ${has(d.percent) ? `${Math.round(d.percent)}% · ` : ''}${has(d.free) ? `${fmtBytes(d.free)} free of ${fmtBytes(d.total)}` : orDash(null)}
+                  </span>
+                </div>
+                <${Bar} percent=${d.percent}/>
+              </div>`) : html`<span style=${{ fontSize: 12 }} title=${NOT_REPORTED}>No drive data reported</span>`}
             </div>
 
-            
             <div class="card" style=${{ padding: 12 }}>
-              <div style=${{ fontSize: 12, fontWeight: 700, marginBottom: 8, color: 'var(--text-secondary)' }}>System Info</div>
-              <${InfoRow} label="Hostname" value=${info.hostname || host.hostname} mono/>
-              <${InfoRow} label="OS" value=${host.os}/>
-              <${InfoRow} label="Platform" value=${info.platform}/>
-              <${InfoRow} label="Architecture" value=${info.arch}/>
-              <${InfoRow} label="CPU Cores" value=${info.cpus} mono/>
-              <${InfoRow} label="IP Address" value=${host.ip || info.ip} mono/>
+              <div style=${cardTitle}>System Info</div>
+              <${InfoRow} label="Hostname" value=${host.hostname} mono/>
+              <${InfoRow} label="Operating system" value=${osText(v) || host.os}/>
+              <${InfoRow} label="Kernel or build" value=${v.kernel}/>
+              <${InfoRow} label="Platform" value=${v.platform}/>
+              <${InfoRow} label="Architecture" value=${v.arch}/>
+              <${InfoRow} label="CPU cores" value=${v.cpu_cores} mono/>
+              ${has(v.cpu_model) && html`<${InfoRow} label="CPU model" value=${v.cpu_model}/>`}
+              <${InfoRow} label="Model" value=${v.model}/>
+              <${InfoRow} label="IP address" value=${v.ip || host.ip} mono/>
               ${info.domain && html`<${InfoRow} label="Domain" value=${info.domain} mono/>`}
-              <${InfoRow} label="Uptime" value=${info.uptime_hours ? `${info.uptime_hours} hours (${Math.round(info.uptime_hours / 24)} days)` : null}/>
-              <${InfoRow} label="Last Seen" value=${host.last_seen ? new Date(host.last_seen).toLocaleString() : null}/>
+              <${InfoRow} label="Uptime" value=${uptimeText(v.uptime_s)}/>
+              <${InfoRow} label=${isOnline ? 'Last seen' : 'Last reported'} value=${host.last_seen ? `${new Date(host.last_seen).toLocaleString('en-GB')} (${fmtAgo(host.last_seen)})` : null}/>
+              <${InfoRow} label="Agent version" value=${v.agent_version || host.agent_version}/>
               <${InfoRow} label="Agent ID" value=${host.id} mono/>
             </div>
 
-            
-            ${info.docker_details && info.docker_details.length > 0 && (
+            ${containers.length > 0 && (
               html`<div class="card" style=${{ padding: 12 }}>
-                <div style=${{ fontSize: 12, fontWeight: 700, marginBottom: 8, color: 'var(--text-secondary)' }}>
-                  Docker Containers (${info.docker_running} running)
-                </div>
+                <div style=${cardTitle}>Docker Containers (${v.docker_running ?? '-'} running of ${v.docker_total ?? containers.length})</div>
                 <div class="table-wrap">
                   <table style=${{ fontSize: 11 }}>
-                    <thead><tr><th>Name</th><th>Image</th><th>Status</th><th>Ports</th></tr></thead>
+                    <thead><tr><th>Name</th><th>Image</th><th>State</th><th>Status</th></tr></thead>
                     <tbody>
-                      ${info.docker_details.map((c, i) => (
-                        html`<tr key=${i}>
-                          <td style=${{ fontFamily: 'Geist Mono, monospace', color: 'var(--green)' }}>${c.name}</td>
+                      ${containers.map((c, i) => (
+                        html`<tr key=${c.name || i}>
+                          <td style=${{ fontFamily: 'Geist Mono, monospace', color: c.state === 'running' ? 'var(--green)' : 'var(--red)' }}>${c.name}</td>
                           <td style=${{ fontFamily: 'Geist Mono, monospace', fontSize: 10 }}>${c.image}</td>
-                          <td>${c.status}</td>
-                          <td style=${{ fontSize: 10 }}>${c.ports || '\u2014'}</td>
+                          <td>${c.state}${c.health ? ` (${c.health})` : ''}</td>
+                          <td style=${{ fontSize: 10 }}>${c.status || '-'}</td>
                         </tr>`
                       ))}
                     </tbody>
@@ -161,24 +161,7 @@ export function HostDetailModal({ host, onClose, addToast }) {
                 </div>
               </div>`
             )}
-            ${info.docker_containers && info.docker_containers.length > 0 && !info.docker_details && (
-              html`<div class="card" style=${{ padding: 12 }}>
-                <div style=${{ fontSize: 12, fontWeight: 700, marginBottom: 8, color: 'var(--text-secondary)' }}>
-                  Docker Containers (${info.docker_running} running)
-                </div>
-                <div style=${{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  ${info.docker_containers.map(c => (
-                    html`<span key=${c} style=${{
-                      background: 'var(--bg-primary)', border: '1px solid var(--border)',
-                      borderRadius: 4, padding: '3px 8px', fontSize: 11,
-                      fontFamily: 'Geist Mono, monospace', color: 'var(--green)'
-                    }}>${c}</span>`
-                  ))}
-                </div>
-              </div>`
-            )}
 
-            
             ${(() => {
               const cronJob = lastJobOfType('list_crons');
               if (!cronJob) return null;
@@ -363,7 +346,7 @@ export function HostDetailModal({ host, onClose, addToast }) {
                   <//>
                 `
               )}
-              ${isLinux && info.docker_running != null && (
+              ${isLinux && (v.docker_total ?? info.docker_running) != null && (
                 html`<${QuickActionButton} tooltip="Pulls the latest image for every running Docker container on this host. It does not recreate containers unless a specific Docker update job includes restart details." onClick=${() => runJob('docker_update')}>
                   <${Icons.Box}/> Docker Update
                 <//>`

@@ -6,7 +6,8 @@ const { parseJson } = require('./db');
 
 const RANGES = { '1h': 3600, '24h': 86400, '7d': 604800, '30d': 2592000 };
 const FIXED = ['cpu', 'ram', 'swap', 'load1', 'disk', 'rx', 'tx'];
-const DYNAMIC = /^(disk|inodes|net|temp):.{1,100}$/;
+// macOS reports mount paths longer than 100 characters (simulator and app volumes), so allow up to 400.
+const DYNAMIC = /^(disk|inodes|net|temp):.{1,400}$/;
 const MAX_POINTS = 600;
 const ROLLUP_EVERY_MS = 300000;
 

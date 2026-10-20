@@ -14,7 +14,7 @@ function Inner({ hostId }) {
         <div class="page-desc" style=${{ marginTop: 10 }}>The agent collects failed services only. It does not send a full service list.</div>
       <//>
       ${inv.darwin && html`<${Section} title=${`Failed launchd jobs (${arr(inv.darwin.launchd_failed).length})`}>
-        <${DataTable} empty="No failed launchd jobs" rows=${arr(inv.darwin.launchd_failed)} cols=${[{ h: 'Label', f: s => s.label || s.name || String(s) }, { h: 'Last exit', f: s => s.status ?? s.exit ?? '-' }]}/>
+        <${DataTable} empty="No failed launchd jobs" rows=${arr(inv.darwin.launchd_failed)} cols=${[{ h: 'Label', f: s => s.label || s.name || String(s) }, { h: 'Last exit', f: s => s.status ?? s.exit ?? s.state ?? '-' }]}/>
       <//>`}
       ${inv.windows && html`<${Section} title=${`Failed scheduled tasks (${arr(inv.windows.failed_tasks).length})`}>
         <${DataTable} empty="No failed scheduled tasks" rows=${arr(inv.windows.failed_tasks)} cols=${[{ h: 'Task', f: t => t.name }, { h: 'Result', f: t => toneBadge('bad', t.result_hex || String(t.result)) }, { h: 'Last run', f: t => fmtDate(t.last_run) }]}/>

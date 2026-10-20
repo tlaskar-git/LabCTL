@@ -2,6 +2,7 @@
 const { randomUUID } = require('crypto');
 const ops = require('../hostops');
 const { createSsh } = require('../ssh');
+const { buildView } = require('../host-view');
 
 const ADDRESS = /^[A-Za-z0-9._:%\[\]-]{1,253}$/;
 const str = (v, max) => String(v ?? '').trim().slice(0, max);
@@ -11,7 +12,12 @@ module.exports = (app, ctx) => {
   const admin = ctx.requireRole('admin');
   const hostRow = id => db.prepare('SELECT * FROM hosts WHERE id = ?').get(id);
   const isAdmin = req => ctx.auth.rank(req.user?.role) >= ctx.auth.rank('admin');
-  const view = row => ops.hostView(ctx, row, ops.latestAgentVersion(db));
+  // `view` is the normalised host data every display reads (src/host-view.js); the raw fields stay for compatibility.
+  const withView = (row, latest, full) => {
+    const h = ops.hostView(ctx, row, latest);
+    return { ...h, view: buildView(row, { full, online: h.online }) };
+  };
+  const view = row => withView(row, ops.latestAgentVersion(db), false);
 
   // Agentless hosts: jobs go over ssh through the dispatcher hook, state is polled every 60 s.
   const ssh = ctx.ssh = createSsh(ctx);
@@ -73,7 +79,12 @@ module.exports = (app, ctx) => {
   app.get('/api/hosts', (req, res) => {
     const latest = ops.latestAgentVersion(db);
     res.json(db.prepare('SELECT * FROM hosts ORDER BY hostname COLLATE NOCASE').all()
-      .map(r => ops.hostView(ctx, r, latest)).filter(h => ops.matches(h, req.query)));
+      .map(r => withView(r, latest, false)).filter(h => ops.matches(h, req.query)));
+  });
+  app.get('/api/hosts/:id', (req, res) => {
+    const h = hostRow(req.params.id);
+    if (!h) return res.status(404).json({ error: 'Not found' });
+    res.json(withView(h, ops.latestAgentVersion(db), true));
   });
 
   // Add an agentless ssh host.
