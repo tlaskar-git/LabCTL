@@ -47,8 +47,12 @@
 }
 .copy-block { display: flex; gap: 8px; align-items: center; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; padding: 10px; }
 .copy-block code { flex: 1; word-break: break-all; color: var(--text-secondary); }
+.nav-toggle { display: none; }
 @media (max-width: 768px) {
-  .sidebar { display: none; }
+  .sidebar { transform: translateX(-100%); transition: transform 0.2s ease; box-shadow: none; }
+  .sidebar.open { transform: none; box-shadow: 0 0 40px rgba(0, 0, 0, 0.5); }
+  .nav-toggle { display: inline-flex; }
+  @media (prefers-reduced-motion: reduce) { .sidebar { transition: none; } }
   .main { margin-left: 0; padding: 16px; }
   .main { padding-top: 64px; }
   .page-header { padding-right: 0; flex-wrap: wrap; gap: 12px; }

@@ -77,7 +77,7 @@ function createApp({ dataDir = process.env.DATA_DIR || path.join(SERVER_DIR, 'da
   }
   if (!ctx.tokens.count()) {
     const t = ctx.tokens.create('Default enrolment token', 'system');
-    ctx.logger.info(`Created default enrolment token ${t.id}. Its value is not shown. Rotate it under Settings > Enrolment tokens (POST /api/tokens/${t.id}/rotate) to read a value once.`);
+    ctx.logger.info(`Created default enrolment token ${t.id}. Its value is not shown. Create or rotate tokens on the Agents page to read a value once.`);
   }
 
   const app = express();

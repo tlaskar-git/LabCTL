@@ -59,7 +59,7 @@
 .hcard-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; margin-top: 14px; }
 .hcard.is-off .hcard-metrics > div:not(:last-child) { opacity: 0.55; }
 .metric-label { display: block; margin-bottom: 3px; font-size: 11px; font-weight: 600; color: var(--text-secondary); }
-.metric-value { font-size: 12px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.hcard .metric-value { font-size: 12px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
 .hcard-foot { display: flex; align-items: center; gap: 8px; margin-top: auto; padding-top: 12px; min-height: 44px; }
 .hcard-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 2px; flex: 1; min-width: 0; }
 .kind-chip { margin-right: 4px; padding: 1px 8px; border-radius: 10px; background: var(--bg-input); color: var(--text-secondary); font-size: 11px; }

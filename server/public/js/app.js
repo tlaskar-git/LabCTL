@@ -54,8 +54,10 @@ export function App() {
   const { user, hosts } = useAppState();
   const [loadingAuth, setLoadingAuth] = useState(true);
   const [theme, setTheme] = useState(getTheme());
+  const [navOpen, setNavOpen] = useState(false);
   const { toasts, addToast } = useToasts();
   const { path, query } = useRoute();
+  useEffect(() => setNavOpen(false), [path]); // close the phone menu after choosing a page
 
   useEffect(() => { applyTheme(theme); }, [theme]);
 
@@ -99,7 +101,7 @@ export function App() {
   const navItems = group => pages.filter(p => p.group === group && p.nav !== false && p.roles.includes(user.role));
 
   return html`<div class="app">
-    <div class="sidebar">
+    <div class=${`sidebar ${navOpen ? 'open' : ''}`} id="sidebar">
       <div class="sidebar-logo">
         <img class="brand-img" src="/labctl-logo.svg" alt="LabCTL"/>
         <span>${user.username} · ${user.role}</span>
@@ -124,6 +126,9 @@ export function App() {
 
     <div class="main">
       <div class="top-actions">
+        <button class="theme-button nav-toggle" aria-label="Menu" aria-expanded=${navOpen} aria-controls="sidebar" onClick=${() => setNavOpen(o => !o)}>
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        </button>
         <button
           class="theme-button"
           title=${`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
