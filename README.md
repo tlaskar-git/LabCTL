@@ -78,7 +78,7 @@ Losing the key makes every stored credential unreadable. Keep a copy that does n
 | `LABCTL_MASTER_KEY` | Yes | Encrypts stored credentials. |
 | `LABCTL_UPDATER_SECRET` | Yes, for the updater | Shared secret between `labctl` and `labctl-updater`. Any long random string. |
 | `LABCTL_TAG` | No | Image tag to run. Default `latest`. Pin it (for example `v2.0.0`) to hold a version. |
-| `LABCTL_REPO_DIR` | No | Git update mode only. Path of the checkout, mounted at the same path in the sidecar. |
+| `LABCTL_REPO_DIR` | No | Git mode fallback only. Path of a host-maintained checkout, mounted at the same path in the sidecar. Leave it unset to build from the remote git context. |
 | `LABCTL_GITHUB_TOKEN` | No | Read once on the first GitHub token save when no token is typed into the UI. Keep it in your secret store. |
 
 ### 4. Fix the data folder owner
@@ -129,7 +129,21 @@ Put the server behind HTTPS before you enrol hosts. Then open **Settings** and s
 
 The `labctl-updater` sidecar records the current image, pulls the new tag, takes a backup, recreates the container and waits up to 90 seconds for `/api/health` to report the new version. If it does not, the sidecar recreates the container from the previous image and reports `rolled_back`.
 
-The update mode is a setting. `image` (the default) pulls from GHCR. `git` runs `git pull --ff-only` and rebuilds, and needs the checkout mounted into the sidecar (see [updater/README.md](updater/README.md)).
+The update mode is a setting. `image` (the default) makes the Docker daemon on the host pull from GHCR. `git` makes the daemon build from a remote git context (`update_git_repo`, default `https://github.com/tlaskar-git/LabCTL.git`, and `update_git_ref`, default `main`), so the sidecar needs no `git` and no internet access. A mounted checkout is the fallback (see [updater/README.md](updater/README.md)).
+
+The sidecar sits only on an internal Compose network, so it has no route out. `labctl` joins both networks:
+
+```yaml
+services:
+  labctl:
+    networks: [default, labctl-internal]
+  labctl-updater:
+    networks: [labctl-internal]   # no ports, no egress
+networks:
+  default: {}
+  labctl-internal:
+    internal: true
+```
 
 After a LabCTL update, agents can update themselves ring by ring from the same card. The server serves the bundled agent and the agent checks its own file hash, keeps a `.bak` copy and rolls back if the new version does not connect within 60 seconds.
 
@@ -291,7 +305,7 @@ GitHub has no cordon API, so a runner cannot be told to stop taking new jobs. Dr
 
 Settings keys: `github_poll_s` (poll interval, default 60), `github_repos`, `github_verify_timeout_s`, `github_verify_interval_s`, `github_busy_hours`, `github_runner_prefs` (per-runner preferences, including auto-update) and `github_api_base`. **Auto-update** is GitHub's built-in runner auto-update. It is a per-runner preference and LabCTL passes it on re-register and add.
 
-Runners are persistent. Ephemeral runner management is not built: the add and re-register actions can pass GitHub's ephemeral flag, but LabCTL does not re-create the runner after a job. See the decisions in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#decisions).
+Runners are persistent by default. **Ephemeral mode** is a per-runner switch in the CI runners tab and a toggle in the add dialog. An ephemeral runner takes one job and GitHub then removes it, so every job starts on a clean machine. LabCTL registers a fresh runner after each job (same name, labels and group, `_work` and `_temp` emptied). The trade-off is a slower start and no warm caches. LabCTL does this only while the host agent is online, the GitHub token works, no runner on the host is busy and no maintenance window applies. Five failed replacements in a row raise a stuck flag and the `runner_ephemeral_stuck` alert. An admin can pause the whole feature with `PUT /api/runners/ephemeral/settings` and `{"enabled": false}`. See the decisions in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#decisions).
 
 The `ci_host_patch_cycle` runbook patches a runner host end to end: drain and stop the runner, update the OS, clean up, reboot if needed, wait for the agent, start the runner and confirm it online in GitHub.
 
@@ -380,7 +394,7 @@ Added in v2:
 - **SSH.** Host keys are recorded on first connect (trust on first use) and a change is refused. Redeploying with a new key needs an admin to reset it.
 - **Agent link.** Agents connect outbound only. You need no inbound port on managed hosts. A missing, invalid or revoked token gets HTTP 401 on upgrade. Use `wss://` through TLS.
 - **No third-party calls from the browser.** All scripts, styles and fonts are served locally. There is no CDN. The server itself calls only the GitHub API, the GitHub release feed, your own channels and the hosts you add.
-- **Updater sidecar.** It holds the Docker socket, so it publishes no port and answers only on the Compose network with the correct `X-Updater-Secret`. Treat that secret like the master key.
+- **Updater sidecar.** It holds the Docker socket, so it publishes no port, sits only on the internal `labctl-internal` network (no egress) and answers only with the correct `X-Updater-Secret`. Treat that secret like the master key.
 - **Public repository hygiene.** Never commit keys, tokens, real host names or addresses to this repository. Use placeholders (`192.0.2.x`, `example.test`) in issues, pull requests and logs you attach.
 
 Reverse proxy hardening:
@@ -458,14 +472,14 @@ Covered by automated tests (Node, Python, container, CI):
 - Remote deploy over SSH against a throwaway container.
 - Template catalogue, parameter and secret handling, guards, runbooks, patch rings, alert engine, channels against fakes, backup, restore and config import.
 - Updater state machine against a fake Docker client.
-- GitHub integration against a fake GitHub API.
+- GitHub integration against a fake GitHub API, including ephemeral runner replacement, backoff, the stuck flag and the guards.
 
 Not proven and needing real hardware or services:
 
 - macOS agent and installer on a real Mac, and the Mac templates.
 - Windows agent, installer and scheduled tasks on real hosts.
 - Windows deploy over OpenSSH and over WinRM.
-- GitHub runners on real hosts, including update and roll back against live GitHub.
+- GitHub runners on real hosts, including update and roll back against live GitHub, and ephemeral replacement after a real job (the `--ephemeral` registration and the cleanup run on a real runner).
 - A real VPS (WireGuard, fail2ban, certificates) and a real Proxmox node.
 - A Windows domain controller.
 - SMTP relay delivery and Telegram delivery.

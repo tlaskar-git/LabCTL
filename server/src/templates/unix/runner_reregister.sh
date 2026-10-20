@@ -16,6 +16,8 @@ step "Re-registering $NAME at $URL"
 gate
 if [ "$DRY_RUN" = 1 ]; then say "[dry-run] would stop the service, replace the registration with --replace, start the service"; exit 0; fi
 runner_svc "$DIR" stop || warn "The service stop command reported an error"
+# Ephemeral replacement: a clean machine for the next job (_temp lives inside _work).
+if truthy "${LABCTL_P_CLEAN_WORK:-0}"; then step "Clearing _work and _temp"; clear_dir "$DIR/_work"; fi
 BAK="$DIR/.labctl-reg-bak"
 rm -rf "$BAK"; mkdir "$BAK"
 for f in .runner .credentials .credentials_rsaparams; do
@@ -24,6 +26,7 @@ done
 
 export LABCTL_DIR="$DIR" LABCTL_URL="$URL" LABCTL_NAME="$NAME" LABCTL_LABELS="$LABELS" LABCTL_GROUP="$GROUP"
 export LABCTL_EPHEMERAL=0 LABCTL_NOUPDATE=0
+if truthy "${LABCTL_P_EPHEMERAL:-0}"; then LABCTL_EPHEMERAL=1; fi
 if truthy "${LABCTL_P_DISABLE_UPDATE:-0}"; then LABCTL_NOUPDATE=1; fi
 export ACTIONS_RUNNER_INPUT_TOKEN="$LABCTL_SECRET_REG_TOKEN"
 if [ "$OWNER" = root ]; then export RUNNER_ALLOW_RUNASROOT=1; fi

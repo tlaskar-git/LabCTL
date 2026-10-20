@@ -149,6 +149,13 @@ const METRICS = {
       .map(r => ({ host_id: r.host_id, key: r.name, value: r.behind_days, detail: r.version })) },
   runner_public_repo: { flag: true, label: 'Runner attached to a public repository', unit: '', scope: 'fleet', live: false,
     eval: env => env.githubRunners().map(r => ({ host_id: r.host_id, key: r.name, value: r.public_repo ? 1 : 0 })) },
+  // Raised by src/ephemeral.js after repeated failed replacements. Read from the setting ephemeral_state, which holds one entry per runner.
+  runner_ephemeral_stuck: { flag: true, label: 'Ephemeral runner replacement stuck', unit: '', scope: 'fleet', live: false,
+    eval(env) {
+      let state = {};
+      try { state = JSON.parse(env.db.prepare("SELECT value FROM settings WHERE key = 'ephemeral_state'").get()?.value || '{}'); } catch { /* no state yet */ }
+      return Object.values(state).filter(s => s && s.runner).map(s => ({ host_id: s.host_id, key: s.runner, value: s.stuck ? 1 : 0, detail: s.last_error || undefined }));
+    } },
   github_permission_check_failed: { flag: true, label: 'GitHub token permission check failed', unit: '', scope: 'fleet', live: false,
     eval(env) {
       const c = env.githubCheck();
@@ -185,6 +192,7 @@ const DEFAULT_RULES = [
   rule('docker-disk', 'Docker disk above its limit', 'warning', 'docker_disk_gb', '>', 100, 0, { threshold_setting: 'docker_disk_limit_gb' }),
   rule('runner-behind', 'Runner version behind latest by more than 14 days', 'info', 'runner_behind_days', '>', 14, 0),
   rule('runner-public', 'Runner attached to a public repository', 'critical', 'runner_public_repo', '>=', 1, 0),
+  rule('runner-ephemeral-stuck', 'Ephemeral runner could not be replaced', 'warning', 'runner_ephemeral_stuck', '>=', 1, 0, {}, 'Five replacement attempts in a row failed. Fix the cause, then reset the runner.'),
   rule('github-permission', 'GitHub token permission check fails', 'warning', 'github_permission_check_failed', '>=', 1, 0)
 ];
 

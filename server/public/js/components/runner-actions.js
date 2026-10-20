@@ -11,7 +11,7 @@ export const RUNNER_ACTIONS = [
   { id: 'runner_restart', label: 'Restart', drain: true, text: 'Restarts the runner service and waits for it to run.' },
   { id: 'runner_health_check', label: 'Health check', drain: false, text: 'Service, listener process, version, disk and the latest log lines. Changes nothing.' },
   { id: 'runner_cleanup', label: 'Cleanup', drain: true, text: 'Removes old workspaces, _diag logs, temp files, tool cache and update leftovers. Runs only when the runner is idle.' },
-  { id: 'runner_reregister', label: 'Re-register', drain: true, text: 'Replaces the registration with a new one. LabCTL fetches the registration token from GitHub and never stores it.' },
+  { id: 'runner_reregister', label: 'Re-register', drain: true, text: 'Replaces the registration with a new one, keeping the runner\'s ephemeral mode. LabCTL fetches the registration token from GitHub and never stores it.' },
   { id: 'runner_remove', label: 'Remove', drain: true, danger: true, confirm: true, text: 'Stops the service, unregisters the runner from GitHub and deletes its folder. Admin only.' }
 ];
 
@@ -107,7 +107,7 @@ export function AddRunnerButton({ hostId, hostName, onDone, addToast, label = 'A
       <${Field} label="Labels, comma separated"><input class="input" value=${s.labels} onInput=${e => set({ labels: e.target.value })}/><//>
       <${Field} label="Runner group (organisation runners)"><input class="input" value=${s.group} onInput=${e => set({ group: e.target.value })}/><//>
       <${Check} checked=${s.ephemeral} onChange=${v => set({ ephemeral: v })}>Ephemeral runner<//>
-      <div class="page-desc" style=${{ margin: '0 0 8px 24px' }}>An ephemeral runner takes one job and then removes itself. That gives every job a clean machine, but LabCTL does not re-create it, so something else must register a new one. Off by default.</div>
+      <div class="page-desc" style=${{ margin: '0 0 8px 24px' }}>An ephemeral runner takes one job and then GitHub removes it. LabCTL registers a fresh, clean runner after each job, so every job starts clean. The trade-off is a slower start and no warm caches. LabCTL needs the host agent online and the GitHub token to do this. Off by default.</div>
     </div>`
   };
   const params = s => ({ URL: s.url.trim(), NAME: s.name.trim(), ...(s.labels.trim() ? { LABELS: s.labels.trim() } : {}), ...(s.group.trim() ? { RUNNER_GROUP: s.group.trim() } : {}), EPHEMERAL: s.ephemeral });

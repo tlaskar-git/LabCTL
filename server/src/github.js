@@ -155,7 +155,7 @@ function createGithub(ctx) {
   // ---- hosts and scopes -----------------------------------------------------------------------------------------------
   function hostRunners() {
     const out = [];
-    for (const h of db.prepare('SELECT id, hostname, os, status, inventory FROM hosts WHERE inventory IS NOT NULL').all()) {
+    for (const h of db.prepare('SELECT id, hostname, os, status, inventory, inventory_at FROM hosts WHERE inventory IS NOT NULL').all()) {
       const inv = parseJson(h.inventory, {});
       for (const r of Array.isArray(inv && inv.runners) ? inv.runners : []) out.push({ host: h, r, sc: parseRunnerUrl(r.url) });
     }
@@ -314,7 +314,10 @@ function createGithub(ctx) {
     const q = queued().repos;
     const prefs = settings.get('github_runner_prefs') || {};
     const busyMs = num('github_busy_hours', 6) * 3600000;
+    const eph = settings.get('ephemeral_state') || {};
     return hostRunners().map(({ host, r, sc }) => {
+      const pref = prefs[`${host.id}/${r.name}`] || {};
+      const es = eph[`${host.id}/${r.name}`] || {};
       const s = sc && scopes[sc.scope];
       const gh = s ? (s.runners || []).find(x => x.name === r.name) || null : null;
       const serviceOk = SERVICE_OK.includes(String(r.service_state || '').toLowerCase());
@@ -333,7 +336,10 @@ function createGithub(ctx) {
         name: r.name || r.path, path: r.path, url: r.url || null, scope: sc ? sc.scope : null, scope_kind: sc ? sc.kind : null,
         settings_url: sc ? settingsUrl(sc) : null,
         local: { service_state: r.service_state || null, service_ok: serviceOk, version: r.version || null, busy: !!r.busy, job: r.job || null,
-          labels: r.labels || [], sizes: r.sizes || null, run_as: r.run_as || null },
+          labels: r.labels || [], sizes: r.sizes || null, run_as: r.run_as || null, pool: r.pool || null, inventory_at: host.inventory_at || null },
+        // The stored per-runner flag wins. The agent field is a fallback if it ever reports .runner's ephemeral value.
+        ephemeral: { enabled: typeof pref.ephemeral === 'boolean' ? pref.ephemeral : !!r.ephemeral, stuck: !!es.stuck, failures: es.failures || 0,
+          last_replaced_at: es.last_ok_at || null, next_try_at: es.next_at || null, last_error: es.last_error || null, events: (es.events || []).slice(-10) },
         github: gh ? { id: gh.id, status: gh.status, busy: gh.busy, labels: gh.labels, stale: s.ok === false } : null,
         github_error: s && s.ok === false ? s.error || 'Last poll failed' : null,
         queued: queue || null,
@@ -341,7 +347,8 @@ function createGithub(ctx) {
         disable_update: !!(prefs[`${host.id}/${r.name}`] && prefs[`${host.id}/${r.name}`].disable_update),
         flags: {
           mismatch, public_repo: publicRepo, behind_latest: versionBehind(r.version, latest && latest.version),
-          missing_in_github: !!(s && s.ok !== false && !gh), busy_too_long: !!since && Date.now() - since > busyMs, size_warnings: sizeWarnings
+          missing_in_github: !!(s && s.ok !== false && !gh), busy_too_long: !!since && Date.now() - since > busyMs, size_warnings: sizeWarnings,
+          ephemeral_stuck: !!es.stuck
         }
       };
     });

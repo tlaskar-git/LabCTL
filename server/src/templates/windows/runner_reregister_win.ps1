@@ -19,6 +19,8 @@ Invoke-Gate
 if ($DryRun) { Say '[dry-run] would stop the service, replace the registration with --replace, start the service'; exit 0 }
 if (-not $r.Service) { Die 'This runner is not installed as a service' }
 Stop-Service -Name $r.Service -Force
+# Ephemeral replacement: a clean machine for the next job (_temp lives inside _work).
+if (Get-Flag 'CLEAN_WORK') { Step 'Clearing _work and _temp'; Clear-Dir (Join-Path $dir '_work') }
 $bak = Join-Path $dir '.labctl-reg-bak'
 if (Test-Path -LiteralPath $bak) { Remove-Item -LiteralPath $bak -Recurse -Force }
 New-Item -ItemType Directory -Path $bak | Out-Null
@@ -28,6 +30,7 @@ foreach ($f in $files) { if (Test-Path -LiteralPath "$dir\$f") { Move-Item -Lite
 $cfg = @('--unattended', '--replace', '--url', $url, '--name', $name, '--work', '_work')
 if ($labels) { $cfg += @('--labels', $labels) }
 if ($group) { $cfg += @('--runnergroup', $group) }
+if (Get-Flag 'EPHEMERAL') { $cfg += '--ephemeral' }
 if (Get-Flag 'DISABLE_UPDATE') { $cfg += '--disableupdate' }
 $env:ACTIONS_RUNNER_INPUT_TOKEN = $token
 try { & "$dir\config.cmd" @cfg | ForEach-Object { Say $_ } } finally { Remove-Item Env:\ACTIONS_RUNNER_INPUT_TOKEN -ErrorAction SilentlyContinue }

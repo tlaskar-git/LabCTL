@@ -264,15 +264,28 @@ stream is down, topics poll every 3 s. With the stream up they still poll every 
 
 ## Updates
 
-The server never touches Docker. The `labctl-updater` sidecar does. It shares the default Compose network with
-`labctl`, answers only with the correct `X-Updater-Secret` header, and publishes no port.
+The server never touches Docker. The `labctl-updater` sidecar does. It sits only on the `labctl-internal` network
+(`internal: true`), answers only with the correct `X-Updater-Secret` header, and publishes no port. `labctl` is on
+both `default` and `labctl-internal` and reaches the sidecar at `http://labctl-updater:8080`.
+
+```yaml
+services:
+  labctl:
+    networks: [default, labctl-internal]
+  labctl-updater:
+    networks: [labctl-internal]   # no ports, no egress
+networks:
+  default: {}
+  labctl-internal:
+    internal: true
+```
 
 | Route (admin only) | Purpose |
 |---|---|
 | `GET /api/updates/check` | Latest GitHub release, cached 15 minutes (`?refresh=1` skips the cache). |
 | `POST /api/updates/apply` | `{confirm:"UPDATE", version?}`. Calls the sidecar. |
 | `GET /api/updates/status` | Sidecar progress and steps. |
-| `PUT /api/updates/mode` | `{mode:"image"\|"git"}`, stored in the setting `update_mode`. |
+| `PUT /api/updates/mode` | `{mode:"image"\|"git", git_repo?, git_ref?}`, stored in `update_mode`, `update_git_repo`, `update_git_ref`. |
 | `GET /api/updates/agents` | Agents older than the bundled agent. |
 | `POST /api/updates/agents/run` | `{ring:"ring0"\|"ring1"\|"ring2"\|"all"}`: ring by ring agent self-update. `GET` returns progress. |
 
@@ -402,7 +415,8 @@ Agents use the WebSocket `/ws/agent`, not the REST API.
 - SSH: host key recorded on first connect and compared after (trust on first use). Relay deploys do not pin host keys.
 - Agent file access: the agent reads `.runner` and `_diag` of a runner. It never opens `.credentials`.
 - Browser: all assets are local (`server/public/vendor`). No CDN. No inline third-party script.
-- Updater: holds the Docker socket, publishes no port, requires a shared secret on every request except `/healthz`.
+- Updater: holds the Docker socket, publishes no port, has no egress (internal network only), requires a shared secret
+  on every request except `/healthz`. Git mode accepts only an `https://github.com/<owner>/<name>` repository.
 - Process: the image runs as uid 1000. `trust proxy` is `loopback`.
 
 ## Decisions
@@ -461,14 +475,31 @@ Taken in the feature phases (1 to 12):
 23. Relay design: an online Linux or macOS agent runs the SSH install for targets the server cannot reach. This avoids a
     VPN or inbound rule. Secrets travel in the job environment, never in the stored script. Host keys are not pinned,
     because the relay has no store for them.
-24. Ephemeral runners are not built. Persistent runners start jobs faster and keep warm caches, which suits a homelab.
-    Ephemeral runners give a clean machine per job but start slower, lose caches and need a registration step per job.
-    The add and re-register actions carry an `EPHEMERAL` parameter that passes GitHub's flag to the runner. LabCTL does
-    not re-create an ephemeral runner after its job, so that toggle only suits a runner you replace yourself.
+24. Ephemeral runners are built as an optional per-runner mode, off by default. Persistent runners start jobs faster
+    and keep warm caches. Ephemeral runners give a clean machine per job but start slower, lose caches and need a
+    registration step per job. The flag is stored per runner in `github_runner_prefs` (`ephemeral`). The add and
+    re-register actions pass GitHub's `--ephemeral`. An ephemeral runner takes one job, GitHub removes it, and
+    `server/src/ephemeral.js` registers a fresh one. Every 30 s the manager looks at each flagged runner. When its
+    service is stopped, or GitHub no longer lists it, and the host agent is online, it fetches a registration token,
+    runs `runner_reregister` (same name, labels and group, `EPHEMERAL`, `CLEAN_WORK` to empty `_work` and `_temp`) and
+    starts the service. The token goes into the job environment only and is never stored or logged. Guards: nothing
+    happens while any runner on the host is busy (the idle gate is machine wide, so one busy runner delays the
+    others), nor in a maintenance window, nor when the setting `ephemeral_enabled` is false (default true). At most
+    one replacement per runner per 20 s. A failure backs off 30 s, doubling to 15 min. The fifth failure in a row sets
+    `ephemeral_stuck` (UI badge, alert rule `runner_ephemeral_stuck`) until an operator retries. Each replacement is
+    audited as `system` and listed in the runner's event list. State is in the setting `ephemeral_state`. Stopping
+    an ephemeral runner on purpose (the patch cycle runbook does) makes the manager start a fresh one, so use a
+    maintenance window or turn the global switch off for that work.
 25. GitHub has no cordon API. A runner cannot be told to stop accepting jobs. Drain first waits for `Runner.Worker` to
     end, waits 5 s and checks again, and logs a job that started in the gap. This narrows the race and does not close it.
-26. The updater sidecar uses the default Compose network, so git mode can reach GitHub (outbound). It is protected by a
-    shared secret and publishes no port, because it holds the Docker socket.
+26. The updater sidecar sits only on an `internal: true` network named `labctl-internal`, shared with `labctl`. It has
+    no published port and no egress, because it holds the Docker socket. It needs no egress: in image mode the Docker
+    daemon on the host pulls from GHCR, and the GitHub release check runs in the `labctl` container. Git mode uses the
+    Engine API build with a remote git context, so the host daemon fetches the source and the sidecar runs no `git`.
+    This replaces the earlier choice of the default network, which was made only because `git pull` ran inside the
+    sidecar. A mounted checkout that the host keeps current stays as a documented fallback. Git mode accepts only an
+    `https://github.com/<owner>/<name>` repository, checked by the server and again by the sidecar. It needs Docker
+    Engine 25 or later, because the sidecar recreates `labctl` with two networks in one create call.
 27. Ring tags are `ring0`, `ring1` and `ring2`. Tags already exist, need no new schema and are visible in the host list.
 28. A Windows domain controller is detected from the inventory (domain role) or from the tag `domain-controller`. The
     tag covers hosts where the role cannot be read.

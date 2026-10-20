@@ -3,6 +3,7 @@ import { api } from '../api.js';
 import { html } from '../ui.js';
 import { toneBadge, fmtDuration, arr } from './chart-kit.js';
 import { RunnerActions } from './runner-actions.js';
+import { EphemeralCell } from './runner-ephemeral.js';
 
 // GitHub state for runners. useHostRunners feeds the CI runners tab, useFleetRunners feeds the GitHub page.
 // Entries come from GET /api/hosts/:id/runners and GET /api/runners (the merged view built by the server).
@@ -33,6 +34,7 @@ export function RunnerFlags({ entry }) {
       title="Fork pull requests can run code on a self-hosted runner. Open the repository setting that controls this.">${flag('warn', 'Public repository: review fork pull request settings')}</a>`}
     ${f.behind_latest && flag('warn', `Behind ${entry.latest_version}`, `Installed ${entry.local.version}`)}
     ${f.busy_too_long && flag('warn', 'Busy for a long time')}
+    ${f.ephemeral_stuck && flag('bad', 'Ephemeral replacement stuck', entry.ephemeral && entry.ephemeral.last_error)}
     ${f.missing_in_github && flag('warn', 'Not found in GitHub', 'No runner with this name is registered in the repository or organisation')}
     ${arr(f.size_warnings).map(w => flag('warn', w))}
     ${entry.github_error && flag('bad', 'GitHub poll failed', entry.github_error)}
@@ -53,6 +55,7 @@ export function githubColumns(getEntry, ctl) {
     { h: 'GitHub busy', f: r => { const e = getEntry(r); return e && e.github ? (e.github.busy ? toneBadge('warn', 'Busy') : 'Idle') : '-'; } },
     { h: 'GitHub labels', f: r => { const e = getEntry(r); return e && e.github ? arr(e.github.labels).join(', ') || '-' : '-'; } },
     { h: 'Queued', f: r => { const e = getEntry(r); return e && e.queued && e.queued.count ? `${e.queued.count}${e.queued.oldest_age_s ? `, oldest ${fmtDuration(e.queued.oldest_age_s)}` : ''}` : '-'; } },
+    { h: 'Ephemeral', f: r => html`<${EphemeralCell} entry=${getEntry(r)} runner=${r.name} ctl=${ctl}/>` },
     { h: 'Warnings', f: r => { const e = getEntry(r); return e ? html`<${RunnerFlags} entry=${e}/>` : '-'; } },
     { h: 'Actions', f: r => html`<${RunnerActions} hostId=${ctl.hostId} hostName=${ctl.hostName} runner=${r.name} disableUpdate=${(getEntry(r) || {}).disable_update}
       onDone=${ctl.onChange} addToast=${ctl.addToast}/>` }

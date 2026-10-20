@@ -5,6 +5,7 @@
 const { randomUUID } = require('crypto');
 const { parseJson } = require('../db');
 const { needsConfirm, confirmWord } = require('../guards');
+const { createEphemeral } = require('../ephemeral');
 
 const ACTIONS = new Set(['runner_update', 'runner_restart', 'runner_health_check', 'runner_cleanup', 'runner_reregister', 'runner_remove', 'runner_add']);
 const TOKENS = { runner_reregister: ['REG_TOKEN', 'registration'], runner_add: ['REG_TOKEN', 'registration'], runner_remove: ['REMOVE_TOKEN', 'remove'] };
@@ -16,6 +17,11 @@ module.exports = (app, ctx) => {
   const fail = (status, error, extra = {}) => Object.assign(new Error(error), { status, extra });
   const hostRow = id => db.prepare('SELECT * FROM hosts WHERE id = ?').get(String(id));
   const prefKey = (hostId, name) => `${hostId}/${name}`;
+  // Merges into the stored prefs of one runner (disable_update, ephemeral) and re-reads them first.
+  const setPref = (hostId, name, patch) => {
+    const prefs = settings.get('github_runner_prefs') || {};
+    settings.set('github_runner_prefs', { ...prefs, [prefKey(hostId, name)]: { ...prefs[prefKey(hostId, name)], ...patch } });
+  };
 
   app.get('/api/runners', (req, res) => res.json({ runners: gh().fleet(), github: gh().status(), queued: gh().queued(), latest: gh().latestRunner() }));
 
@@ -23,10 +29,46 @@ module.exports = (app, ctx) => {
   app.put('/api/runners/prefs', (req, res) => {
     const { host_id, runner, disable_update } = req.body || {};
     if (!hostRow(host_id) || !runner || typeof disable_update !== 'boolean') return res.status(400).json({ error: 'host_id, runner and disable_update (true or false) are required' });
-    const prefs = { ...(settings.get('github_runner_prefs') || {}) };
-    prefs[prefKey(host_id, runner)] = { disable_update };
-    settings.set('github_runner_prefs', prefs);
+    setPref(host_id, runner, { disable_update });
     res.json({ ok: true });
+  });
+
+  // Per-runner ephemeral mode (see src/ephemeral.js). Body: { host_id, runner, ephemeral (true or false), apply (default true) }.
+  // apply re-registers the runner now with the new mode, because the GitHub registration only changes on a re-register.
+  app.put('/api/runners/ephemeral', async (req, res) => {
+    const { host_id, runner, ephemeral, apply } = req.body || {};
+    if (!hostRow(host_id) || !runner || typeof ephemeral !== 'boolean') return res.status(400).json({ error: 'host_id, runner and ephemeral (true or false) are required' });
+    const entry = gh().fleet().find(r => r.host_id === host_id && r.name === runner);
+    if (!entry) return res.status(404).json({ error: 'Runner not found on this host' });
+    setPref(host_id, runner, { ephemeral });
+    ctx.audit(req.user.username, 'runner.ephemeral.set', host_id, { runner, ephemeral });
+    if (apply === false) return res.json({ ok: true, applied: false });
+    try {
+      const job = await ctx.ephemeral.apply(host_id, runner);
+      res.json({ ok: true, applied: true, job_id: job.job_id });
+    } catch (err) {
+      // The flag is saved. Only the re-register could not start.
+      res.json({ ok: true, applied: false, reason: err.message });
+    }
+  });
+
+  // Clears the stuck flag and the failure count so the manager tries again.
+  app.post('/api/runners/ephemeral/reset', (req, res) => {
+    const { host_id, runner } = req.body || {};
+    const entry = gh().fleet().find(r => r.host_id === host_id && r.name === runner);
+    if (!entry) return res.status(404).json({ error: 'Runner not found on this host' });
+    ctx.ephemeral.reset(entry);
+    ctx.audit(req.user.username, 'runner.ephemeral.reset', host_id, { runner });
+    res.json({ ok: true });
+  });
+
+  // Global switch ephemeral_enabled (default on). Admin only. Existing runners are left as they are.
+  app.get('/api/runners/ephemeral/settings', (req, res) => res.json({ enabled: ctx.ephemeral.enabled() }));
+  app.put('/api/runners/ephemeral/settings', ctx.requireRole('admin'), (req, res) => {
+    if (typeof (req.body || {}).enabled !== 'boolean') return res.status(400).json({ error: 'enabled (true or false) is required' });
+    settings.set('ephemeral_enabled', req.body.enabled);
+    ctx.audit(req.user.username, 'runner.ephemeral.settings', null, { enabled: req.body.enabled });
+    res.json({ enabled: req.body.enabled });
   });
 
   // ---- running a template ---------------------------------------------------------------------------------------------
@@ -71,10 +113,16 @@ module.exports = (app, ctx) => {
       for (const [k, v] of Object.entries(b.params || {})) params[String(k).toUpperCase()] = v;
       if (runner) params.RUNNER_DIR = runner.path; // the action targets this runner only
       const prefs = settings.get('github_runner_prefs') || {};
+      const yes = v => ['1', 'true', true, 1].includes(v);
       if (['runner_reregister', 'runner_add'].includes(base)) {
         const name = String(params.NAME || (runner && runner.name) || '');
-        if (params.DISABLE_UPDATE === undefined) params.DISABLE_UPDATE = !!(runner && prefs[prefKey(host.id, name)]?.disable_update);
-        else if (name) settings.set('github_runner_prefs', { ...prefs, [prefKey(host.id, name)]: { disable_update: ['1', 'true', true, 1].includes(params.DISABLE_UPDATE) } });
+        const own = prefs[prefKey(host.id, name)] || {};
+        if (params.DISABLE_UPDATE === undefined) params.DISABLE_UPDATE = !!(runner && own.disable_update);
+        else if (name) setPref(host.id, name, { disable_update: yes(params.DISABLE_UPDATE) });
+        // The ephemeral flag follows the stored choice unless the request names one. A dry run stores nothing.
+        if (params.EPHEMERAL === undefined) params.EPHEMERAL = !!own.ephemeral;
+        else if (name && !yes(params.DRY_RUN)) setPref(host.id, name, { ephemeral: yes(params.EPHEMERAL) });
+        if (base === 'runner_reregister' && yes(params.EPHEMERAL)) params.CLEAN_WORK = true;
       }
 
       let tokenName = null, tokenValue = null;
@@ -176,4 +224,9 @@ module.exports = (app, ctx) => {
     if (!r.run) return res.status(r.status || 400).json({ error: r.error, confirm_required: r.confirm_required });
     res.json({ id: r.run.id, status: r.run.status });
   });
+
+  // Replaces ephemeral runners after their job (its own 30 s timer).
+  ctx.ephemeral = createEphemeral(ctx, { runTemplate, waitJob });
+  ctx.ephemeral.start();
+  ctx.onClose(() => ctx.ephemeral.stop());
 };

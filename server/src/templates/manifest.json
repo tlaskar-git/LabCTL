@@ -510,6 +510,18 @@
       "file": "unix/runner_reregister.sh",
       "params": [
         {
+          "name": "EPHEMERAL",
+          "type": "bool",
+          "default": false,
+          "label": "Register as an ephemeral runner (one job, then removed)"
+        },
+        {
+          "name": "CLEAN_WORK",
+          "type": "bool",
+          "default": false,
+          "label": "Empty _work and _temp before registering"
+        },
+        {
           "name": "DRY_RUN",
           "type": "bool",
           "default": false,
@@ -1127,6 +1139,18 @@
       "shell": "powershell",
       "file": "windows/runner_reregister_win.ps1",
       "params": [
+        {
+          "name": "EPHEMERAL",
+          "type": "bool",
+          "default": false,
+          "label": "Register as an ephemeral runner (one job, then removed)"
+        },
+        {
+          "name": "CLEAN_WORK",
+          "type": "bool",
+          "default": false,
+          "label": "Empty _work and _temp before registering"
+        },
         {
           "name": "DRY_RUN",
           "type": "bool",

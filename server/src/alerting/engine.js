@@ -108,9 +108,9 @@ function createAlerting(ctx) {
     db.prepare("UPDATE alerts SET status = 'resolved', resolved_at = ? WHERE rule_id = ? AND status = 'firing'").run(now, ruleId);
   }
 
-  if (!ctx.settings.get('_alert_pack_v1')) {
+  if (!ctx.settings.get('_alert_pack_v2')) {
     db.transaction(() => { for (const r of DEFAULT_RULES) { const { id, ...rule } = r; if (!db.prepare('SELECT 1 FROM alert_rules WHERE id = ?').get(id)) saveRule(rule, id); } })();
-    ctx.settings.set('_alert_pack_v1', true);
+    ctx.settings.set('_alert_pack_v2', true);
   }
 
   // ---- evaluation -------------------------------------------------------------------------------------------------
