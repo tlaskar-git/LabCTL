@@ -63,6 +63,7 @@ function JobView({ id, search }) {
   if (error && !job) return html`<div class="card" style=${{ color: 'var(--red)' }}>${error}</div>`;
   if (!job) return html`<div class="page-desc">Loading...</div>`;
   const start = job.started_at || job.created_at;
+  const received = Math.max(bytes, job.bytes_received || 0);
   const duration = open ? now - new Date(start) : (job.duration_ms ?? (job.completed_at ? new Date(job.completed_at) - new Date(start) : null));
   return html`<div>
     <div style=${{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
@@ -79,9 +80,12 @@ function JobView({ id, search }) {
       <${Field} label="Started">${when(job.started_at || job.created_at)}<//>
       <${Field} label="Duration">${fmtDuration(duration)}<//>
       <${Field} label="Exit code">${job.exit_code ?? '-'}<//>
-      <${Field} label="Received">${bytesText(Math.max(bytes, job.bytes_received || 0))}<//>
+      <${Field} label="Received">${bytesText(received)}<//>
     </div>
     ${job.error && html`<div style=${{ color: 'var(--red)', fontSize: 12, marginBottom: 8 }}>${job.error}</div>`}
+    ${job.status === 'sent' && !received && html`<div style=${{ color: 'var(--text-dim)', fontSize: 12, marginBottom: 8 }}>
+      Sent to the agent, waiting for the first output (${Math.max(0, Math.round((now - new Date(job.sent_at || job.created_at)) / 1000))} s)</div>`}
+    ${!open && !received && html`<div style=${{ color: 'var(--text-dim)', fontSize: 12, marginBottom: 8, fontStyle: 'italic' }}>No output</div>`}
     ${error && html`<div style=${{ color: 'var(--red)', fontSize: 12, marginBottom: 8 }}>${error}</div>`}
     <${Terminal} key=${id} jobId=${id} initialSearch=${search} onEvent=${onEvent} name=${`${job.hostname}-${job.type}-${String(id).slice(0, 8)}`.replace(/[^A-Za-z0-9._-]/g, '_')}/>
   </div>`;

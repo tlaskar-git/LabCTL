@@ -214,8 +214,10 @@ test('ssh host: create with inline credential, poll state, job output, exit code
   await waitFor(() => s.ctx.jobs.get(bad.id).status === 'failed');
   assert.equal(s.ctx.jobs.get(bad.id).exit_code, 3);
 
-  const noScript = s.ctx.jobs.create({ host_id: id, type: 'reboot' });
-  await waitFor(() => s.ctx.jobs.get(noScript.id).status === 'failed');
+  // A typed v1 job is translated into a script (legacy-jobs.js), so it runs over SSH too.
+  const typed = s.ctx.jobs.create({ host_id: id, type: 'reboot', params: { delay: 60 } });
+  await waitFor(() => s.ctx.jobs.get(typed.id).status === 'completed');
+  assert.equal(s.ctx.jobs.get(typed.id).script, null); // the script is built at send time, never stored
 
   const events = [];
   s.ctx.events.on('job_output', e => events.push(e));

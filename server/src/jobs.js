@@ -2,8 +2,11 @@
 // Output goes to job log files only, never to the database.
 const { randomUUID } = require('crypto');
 const { parseJson, ensureColumn } = require('./db');
+const legacy = require('./legacy-jobs');
 
 const OPEN_STATES = ['pending', 'sent', 'running', 'waiting'];
+const OFFLINE = 'Host is offline, the job starts when it reconnects';
+const SWEEP_MS = 15000;
 
 function createJobs(ctx) {
   const { db } = ctx;
@@ -13,6 +16,8 @@ function createJobs(ctx) {
   // Phase 6 columns and the job group table (one group = one child job per host).
   ensureColumn(db, 'jobs', 'group_id', 'TEXT');
   ensureColumn(db, 'jobs', 'bytes_received', 'INTEGER NOT NULL DEFAULT 0');
+  ensureColumn(db, 'jobs', 'sent_at', 'TEXT');
+  ensureColumn(db, 'jobs', 'result_text', 'TEXT'); // job.result for legacy.RESULT_TYPES, kept whole for the UI parsers
   db.exec(`CREATE TABLE IF NOT EXISTS job_groups (id TEXT PRIMARY KEY, label TEXT, type TEXT, actor TEXT, retry_of TEXT, created_at TEXT NOT NULL);
     CREATE INDEX IF NOT EXISTS jobs_group ON jobs(group_id)`);
   const lastLine = text => {
@@ -30,29 +35,47 @@ function createJobs(ctx) {
     return job;
   };
 
-  // Message for the agent. Script jobs use the v2 run_job frame, typed v1 jobs keep the v1 'job' frame.
-  function agentMessage(job) {
+  // Auto-login secret, resolved at send time only so it never sits in the jobs table: the job's credential_id, else
+  // the host's saved auto-login credential (schedules), else a password left in params by a v1 row.
+  function autologinSecret(job, params) {
+    let cred = params.credential_id ? db.prepare('SELECT * FROM credentials WHERE id = ?').get(params.credential_id) : null;
+    if (!cred && !params.password) cred = db.prepare("SELECT * FROM credentials WHERE host_id = ? AND purpose = 'autologin'").get(job.host_id);
+    if (!cred) return { password: params.password || '', username: params.username };
+    return { password: ctx.crypto.openJson(cred.sealed).password || '', username: params.username || cred.username, domain: params.domain || cred.domain };
+  }
+
+  // A typed v1 job (no script) with the script, env and timeout of its translation; other jobs unchanged.
+  // The result lives in memory for this send only and is never written back to the row.
+  function runnable(job, host) {
+    if (job.script || !legacy.supports(job.type)) return job;
     const params = parseJson(job.params, {});
-    if (job.script) {
-      return { type: 'run_job', job_id: job.id, shell: job.shell || 'bash', script: job.script,
-        env: params.env || {}, timeout_s: job.timeout_s || 3600 };
+    const t = legacy.translate(job.type, params, host?.os);
+    if (job.type === 'autologin') {
+      const s = autologinSecret(job, params);
+      if (s.username) t.env.LABCTL_P_USERNAME = String(s.username);
+      if (s.domain) t.env.LABCTL_P_DOMAIN = String(s.domain);
+      t.env.LABCTL_SECRET_PASSWORD = String(s.password || '');
     }
-    let sentParams = job.params;
-    if (job.type === 'autologin' && params.credential_id) {
-      // Secrets are resolved at send time only, so they never sit in the jobs table.
-      const cred = db.prepare('SELECT * FROM credentials WHERE id = ?').get(params.credential_id);
-      if (cred) sentParams = JSON.stringify({ username: cred.username, password: ctx.crypto.openJson(cred.sealed).password });
+    return { ...job, shell: t.shell, script: t.script, timeout_s: t.timeout_s, params: JSON.stringify({ env: t.env }) };
+  }
+
+  // Message for the agent: run_job for script jobs and translated typed jobs, the v1 'job' frame for unknown types.
+  function agentMessage(job, host) {
+    const run = runnable(job, host);
+    if (run.script) {
+      return { type: 'run_job', job_id: run.id, shell: run.shell || 'bash', script: run.script,
+        env: parseJson(run.params, {}).env || {}, timeout_s: run.timeout_s || 3600 };
     }
-    return { type: 'job', job: { id: job.id, host_id: job.host_id, type: job.type, params: sentParams, status: job.status, created_at: job.created_at } };
+    return { type: 'job', job: { id: job.id, host_id: job.host_id, type: job.type, params: job.params, status: job.status, created_at: job.created_at } };
   }
 
   function dispatch(job) {
     if (!job || job.status !== 'pending') return job;
     const host = db.prepare('SELECT * FROM hosts WHERE id = ?').get(job.host_id);
     const custom = host && dispatchers.get(host.kind);
-    if (custom) return custom(job, host) ? setStatus(job.id, 'sent') : job;
-    if (ctx.agents.send(job.host_id, agentMessage(job))) return setStatus(job.id, 'sent');
-    return job;
+    const sent = custom ? custom(runnable(job, host), host) : ctx.agents.send(job.host_id, agentMessage(job, host));
+    if (sent) return setStatus(job.id, 'sent', { sent_at: now(), error: '' });
+    return job.error === OFFLINE ? job : setStatus(job.id, 'pending', { error: OFFLINE });
   }
 
   const self = {
@@ -87,12 +110,12 @@ function createJobs(ctx) {
       return db.prepare(sql).all(...args, Math.max(1, Math.min(5000, Number(limit) || 200)), Math.max(0, Number(offset) || 0));
     },
     // API shape (v1 compatible): adds hostname and result (from the log file).
-    // log:false skips the result (the drawer streams it instead). started_by and ended_at name actor and completed_at.
+    // log:false skips the log text (the drawer streams it instead) but keeps a stored result_text. started_by and ended_at name actor and completed_at.
     out(job, { full = false, log = true } = {}) {
       if (!job) return null;
       const host = job.host_id && db.prepare('SELECT hostname FROM hosts WHERE id = ?').get(job.host_id);
       return { ...job, hostname: host?.hostname || job.host_id, started_by: job.actor, ended_at: job.completed_at,
-        result: !log ? '' : full ? ctx.joblog.read(job.id) : ctx.joblog.tail(job.id, 4096) };
+        result: job.result_text ?? (!log ? '' : full ? ctx.joblog.read(job.id) : ctx.joblog.tail(job.id, 4096)) };
     },
     markRunning(id) { return setStatus(id, 'running', { started_at: now() }); },
     output(id, chunk, stream = 'stdout', seq = null) {
@@ -116,7 +139,8 @@ function createJobs(ctx) {
       if (!job) return null;
       const final = status === 'success' ? 'completed' : (['completed', 'failed', 'cancelled'].includes(status) ? status : 'failed');
       ctx.joblog.finish(id);
-      const done = setStatus(id, final, { completed_at: now(), exit_code, duration_ms, error: String(error || '').slice(0, 2000) });
+      const result_text = legacy.resultText(job.type, legacy.RESULT_TYPES.includes(job.type) ? ctx.joblog.read(id) : '');
+      const done = setStatus(id, final, { completed_at: now(), exit_code, duration_ms, error: String(error || '').slice(0, 2000), result_text });
       if (final === 'completed') self.runChains(done);
       return done;
     },
@@ -157,6 +181,15 @@ function createJobs(ctx) {
       return self.create({ host_id: j.host_id, type: j.type, params: j.params, shell: j.shell, script: j.script, timeout_s: j.timeout_s,
         script_id: j.script_id, actor, group_id });
     },
+    // A job sent to an agent that never acknowledged it (no start, no bytes) fails after job_sent_timeout_s (120 s),
+    // so nothing sits in 'sent' silently. A late job_complete still records the real result.
+    sweepStale(at = Date.now()) {
+      const limit = Number(ctx.settings?.get('job_sent_timeout_s')) || 120;
+      const cutoff = new Date(at - limit * 1000).toISOString();
+      const stale = db.prepare("SELECT id FROM jobs WHERE status = 'sent' AND bytes_received = 0 AND started_at IS NULL AND sent_at IS NOT NULL AND sent_at <= ?").all(cutoff);
+      for (const j of stale) self.complete(j.id, 'failed', { error: `The agent did not respond within ${limit} s. Check that the agent is connected and up to date.` });
+      return stale.length;
+    },
     // v1 chains: waiting jobs released by their predecessor, and autologin after a chained reboot.
     runChains(job) {
       for (const w of db.prepare("SELECT * FROM jobs WHERE host_id = ? AND status = 'waiting'").all(job.host_id)) {
@@ -169,7 +202,10 @@ function createJobs(ctx) {
       }
     }
   };
+  const sweeper = setInterval(() => { try { self.sweepStale(); } catch { /* database closing */ } }, SWEEP_MS);
+  sweeper.unref();
+  ctx.onClose?.(() => clearInterval(sweeper));
   return self;
 }
 
-module.exports = { createJobs, OPEN_STATES };
+module.exports = { createJobs, OPEN_STATES, OFFLINE };

@@ -93,7 +93,7 @@ try:
 except ImportError:  # tests import this file without it
     websocket = None
 
-VERSION = "2.0.0"
+VERSION = "2.0.1"
 HEARTBEAT_S = 30
 INVENTORY_S = 300
 FLUSH_BYTES = 4096
@@ -2200,7 +2200,16 @@ class Agent:
             self.jobs[jid] = ev
             th = threading.Thread(target=self._job, args=(msg, ev), daemon=True)
             self.job_threads[jid] = th
+            self.send({"type": "job_started", "job_id": jid})  # tells the server the job arrived, even before output
             th.start()
+        elif t == "job":
+            # v1 typed job frame from an older server: answer it so the job never waits silently.
+            job = msg.get("job") or {}
+            jid = job.get("id")
+            if jid:
+                self.send({"type": "job_output", "job_id": jid, "seq": 0, "stream": "stderr",
+                           "chunk": "Unsupported job type %s for this agent version\n" % job.get("type")})
+                self.send({"type": "job_complete", "job_id": jid, "status": "failed", "exit_code": 1, "duration_ms": 0})
         elif t == "cancel_job":
             ev = self.jobs.get(msg.get("job_id"))
             if ev:

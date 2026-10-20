@@ -394,6 +394,8 @@ Templates are scripts that run through the normal job path. Press Ctrl+K (Cmd+K 
 
 Jobs on several hosts form a group. The group view shows each host and offers **Retry failed**. Log search finds text across job logs.
 
+The **Actions** page job types (Linux Update, Docker Update, Run Backup, Reboot, List Crons, Custom Command, Service Control, Disk Cleanup, File Browser, Windows Update, Auto-Login) run on every v2 agent and on SSH hosts: the server turns each one into a script at send time (see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#jobs-and-job-logs)). Each job card on the Actions page shows the status, host, elapsed time, bytes received, exit code and the output as it arrives, with **Open in the drawer** and **Download** (the full log from the server). A job never waits silently: for an offline host it says `Host is offline, the job starts when it reconnects`, a sent job shows how long it waits for the first output, and an agent that does not answer within 120 s (setting `job_sent_timeout_s`) fails the job with that reason.
+
 Schedules use standard five-field cron in the `timezone` setting (default `Europe/Dublin`). A run found more than 2 minutes late is recorded as `missed` and not run.
 
 ## Users and roles
@@ -492,6 +494,13 @@ Linux installer container test. It starts a throwaway LabCTL server and a Debian
 
 ```bash
 LABCTL_TEST_SSH_HOST=<docker-host> node agent/tests/container/run_linux_setup.js
+```
+
+Typed job tests on a real agent. `run_linux_jobs.js` installs the agent in a throwaway Debian 12 container and runs List Crons, Custom Command, Service Control, File Browser, Run Backup and Linux Update (with a fake `apt-get`, so nothing is installed). `run_local_jobs.js` runs the agent on this machine against a throwaway server (on Windows: scheduled tasks, cmd and PowerShell commands, service status, file listing, task folders):
+
+```bash
+LABCTL_TEST_SSH_HOST=<docker-host> node agent/tests/container/run_linux_jobs.js
+LABCTL_TEST_PYTHON=<python with websocket-client> node agent/tests/run_local_jobs.js
 ```
 
 CI (`.github/workflows/ci.yml`) runs the Node tests and lint, the updater tests, the Python tests, ShellCheck on `agent/*.sh`, PSScriptAnalyzer on `agent/*.ps1` and a Docker build with a health check. The `release` workflow builds and pushes the `ghcr.io/tlaskar-git/labctl` and `labctl-updater` images on a `v*.*.*` tag and creates the GitHub release.

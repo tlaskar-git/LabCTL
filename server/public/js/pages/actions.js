@@ -1,8 +1,93 @@
 import { useState, useEffect, useRef } from 'preact/hooks';
-import { api, downloadBlob } from '../api.js';
+import { api, API, downloadBlob } from '../api.js';
 import { html, Icons, StatusBadge, Modal } from '../ui.js';
 import { JOB_TYPES } from '../job-types.js';
 import { openJobDrawer } from '../job-drawer.js';
+import { fmtDuration } from '../components/job-tiles.js';
+
+const OPEN = ['pending', 'sent', 'running', 'waiting'];
+const TAIL = 16384;
+const TRACKED_KEY = 'labctl.actions.tracked';
+const bytesText = n => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : n >= 1024 ? `${(n / 1024).toFixed(1)} KB` : `${n} B`);
+const logUrl = (id, from) => `${API}/api/jobs/${encodeURIComponent(id)}/log${from === undefined ? '' : `?from=${from}`}`;
+
+// Output of one job read from the server log (the last 16 KB), refreshed every 1.5 s while the job is open.
+// shortcut: plain text without stdout/stderr colours, the drawer has the full terminal.
+function LogTail({ job }) {
+  const [text, setText] = useState(null);
+  const total = useRef(job.bytes_received || 0); // log size from the last read (X-Log-Total)
+  const open = OPEN.includes(job.status);
+  useEffect(() => {
+    let stop = false;
+    const load = async () => {
+      try {
+        const from = Math.max(0, total.current - TAIL);
+        const res = await fetch(logUrl(job.id, from), { credentials: 'same-origin' });
+        if (!res.ok || stop) return;
+        const size = Number(res.headers.get('X-Log-Total')) || 0;
+        const body = await res.text();
+        if (!body && size > 0 && from >= size) { total.current = size; return load(); } // the guess was past the end
+        total.current = size;
+        setText(body);
+      } catch { /* next tick */ }
+    };
+    load();
+    if (!open) return () => { stop = true; };
+    const i = setInterval(load, 1500);
+    return () => { stop = true; clearInterval(i); };
+  }, [job.id, open]);
+  if (text === null) return html`<div style=${{ fontSize: 11, color: 'var(--text-dim)' }}>Loading output...</div>`;
+  if (!text) {
+    if (open) return null;
+    return html`<div style=${{ fontSize: 11, color: 'var(--text-dim)', fontStyle: 'italic' }}>No output</div>`;
+  }
+  return html`<div class="output-log" style=${{ maxHeight: 220, fontSize: 11 }}
+    ref=${el => { if (el && open) el.scrollTop = el.scrollHeight; }}>${text}</div>`;
+}
+
+// One job on the Actions page: status line, why it waits, live output, and links to the drawer and the full log.
+function JobCard({ job, onCancel }) {
+  const open = OPEN.includes(job.status);
+  const start = job.started_at || job.created_at;
+  const elapsed = start ? (open ? Date.now() - new Date(start) : (job.duration_ms ?? (job.completed_at ? new Date(job.completed_at) - new Date(start) : null))) : null;
+  const download = async () => {
+    const res = await fetch(logUrl(job.id), { credentials: 'same-origin' });
+    if (res.ok) downloadBlob(await res.text(), `${job.hostname}-${job.type}-${job.id.slice(0, 8)}.log`);
+  };
+  const sentFor = job.status === 'sent' && job.sent_at ? Math.round((Date.now() - new Date(job.sent_at)) / 1000) : null;
+  return html`<div style=${{
+    background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 6, padding: 10, borderLeftWidth: 3,
+    borderLeftColor: job.status === 'completed' ? 'var(--green)' : job.status === 'failed' ? 'var(--red)' : job.status === 'running' ? 'var(--accent)' : 'var(--yellow)'
+  }}>
+    <div style=${{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
+      <${StatusBadge} status=${job.status}/>
+      <span style=${{ fontFamily: 'Geist Mono, monospace', fontSize: 12 }}>${job.type}</span>
+      <span style=${{ fontSize: 11, color: 'var(--text-secondary)' }}>${job.hostname}</span>
+      <span style=${{ fontSize: 11, color: 'var(--text-dim)' }}>
+        ${fmtDuration(elapsed)} · ${bytesText(job.bytes_received || 0)} · exit ${job.exit_code ?? '-'}
+      </span>
+      <div style=${{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
+        ${open && html`<button class="btn btn-sm ${job.status === 'running' ? 'btn-danger' : ''}" style=${{ padding: '1px 8px' }} onClick=${() => onCancel(job)}>${job.status === 'running' ? 'Stop' : 'Cancel'}</button>`}
+        <button class="btn btn-sm" style=${{ padding: '1px 8px' }} onClick=${() => openJobDrawer(job.id)}><${Icons.Eye}/> Open in the drawer</button>
+        <button class="btn btn-sm" style=${{ padding: '1px 8px' }} onClick=${download}><${Icons.Download}/> Download</button>
+      </div>
+    </div>
+    ${job.error && html`<div style=${{ color: 'var(--red)', fontSize: 12, marginBottom: 6 }}>${job.error}</div>`}
+    ${sentFor !== null && !job.bytes_received && html`<div style=${{ fontSize: 11, color: 'var(--text-dim)', fontStyle: 'italic', marginBottom: 6 }}>Sent to the agent, waiting for the first output (${sentFor} s)</div>`}
+    ${job.status === 'pending' && !job.error && html`<div style=${{ fontSize: 11, color: 'var(--text-dim)', fontStyle: 'italic', marginBottom: 6 }}>Queued, waiting for the agent</div>`}
+    <${LogTail} key=${job.id} job=${job}/>
+  </div>`;
+}
+
+function JobCards({ jobs, setJobs }) {
+  const cancel = async job => {
+    await api(`/api/jobs/${job.id}/cancel`, { method: 'POST' });
+    setJobs(prev => prev.map(j => (j.id === job.id ? { ...j, status: 'cancelled' } : j)));
+  };
+  return html`<div style=${{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+    ${jobs.map(job => html`<${JobCard} key=${job.id} job=${job} onCancel=${cancel}/>`)}
+  </div>`;
+}
 
 // ── Actions Page ──────────────────────────────────────────
 export default function ActionsPage({ hosts, addToast }) {
@@ -16,33 +101,27 @@ export default function ActionsPage({ hosts, addToast }) {
 
   useEffect(() => { api('/api/groups').then(setGroups).catch(() => {}); }, []);
 
-  // Poll tracked jobs (background panel)
+  // The background panel survives a page refresh: its job ids are kept for this browser tab.
   useEffect(() => {
-    if (trackedJobs.length === 0) return;
-    const hasActive = trackedJobs.some(j => ['pending','sent','running'].includes(j.status));
-    if (!hasActive) return;
-    const i = setInterval(async () => {
-      const updated = await Promise.all(
-        trackedJobs.map(j => api(`/api/jobs/${j.id}`).catch(() => j))
-      );
-      setTrackedJobs(updated);
-    }, 2000);
-    return () => clearInterval(i);
-  }, [trackedJobs]);
+    let ids = [];
+    try { ids = JSON.parse(sessionStorage.getItem(TRACKED_KEY) || '[]'); } catch { /* storage blocked */ }
+    if (ids.length) Promise.all(ids.map(id => api(`/api/jobs/${id}?log=0`).catch(() => null))).then(js => setTrackedJobs(js.filter(Boolean)));
+  }, []);
+  useEffect(() => {
+    try { sessionStorage.setItem(TRACKED_KEY, JSON.stringify(trackedJobs.map(j => j.id).slice(0, 50))); } catch { /* storage blocked */ }
+  }, [trackedJobs.map(j => j.id).join()]);
 
-  // Poll modal jobs (inside modal)
-  useEffect(() => {
-    if (modalJobs.length === 0) return;
-    const hasActive = modalJobs.some(j => ['pending','sent','running'].includes(j.status));
-    if (!hasActive) return;
+  // Poll job status (output comes from the log, see LogTail). ?log=0: result carries only the parsed result.
+  const poll = (list, setList) => () => {
+    if (!list.some(j => OPEN.includes(j.status))) return;
     const i = setInterval(async () => {
-      const updated = await Promise.all(
-        modalJobs.map(j => api(`/api/jobs/${j.id}`).catch(() => j))
-      );
-      setModalJobs(updated);
+      const fresh = await Promise.all(list.map(j => api(`/api/jobs/${j.id}?log=0`).catch(() => j)));
+      setList(prev => prev.map(j => fresh.find(f => f.id === j.id) || j)); // merge: jobs added meanwhile stay
     }, 2000);
     return () => clearInterval(i);
-  }, [modalJobs]);
+  };
+  useEffect(poll(trackedJobs, setTrackedJobs), [trackedJobs]);
+  useEffect(poll(modalJobs, setModalJobs), [modalJobs]);
 
   // When closing modal, move modal jobs to background panel
   const closeModal = () => {
@@ -605,55 +684,9 @@ export default function ActionsPage({ hosts, addToast }) {
           ${modalJobs.length > 0 && (
             html`<div style=${{ borderTop: '1px solid var(--border)', paddingTop: 12 }}>
               <div style=${{ fontSize: 11, fontWeight: 700, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 }}>
-                Output (${modalJobs.filter(j => ['pending','sent','running'].includes(j.status)).length} active)
+                Output (${modalJobs.filter(j => OPEN.includes(j.status)).length} active)
               </div>
-              <div style=${{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 400, overflowY: 'auto' }}>
-                ${modalJobs.map(job => (
-                  html`<div key=${job.id} style=${{
-                    background: 'var(--bg-primary)', border: '1px solid var(--border)',
-                    borderRadius: 6, padding: 10,
-                    borderLeftColor: job.status === 'completed' ? 'var(--green)' : job.status === 'failed' ? 'var(--red)' : job.status === 'running' ? 'var(--accent)' : 'var(--yellow)',
-                    borderLeftWidth: 3
-                  }}>
-                    <div style=${{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                      <${StatusBadge} status=${job.status}/>
-                      <span style=${{ fontSize: 11, color: 'var(--text-secondary)' }}>${job.hostname}</span>
-                      <div style=${{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
-                        ${['pending','sent'].includes(job.status) && (
-                          html`<button class="btn btn-sm" style=${{ padding: '1px 6px', fontSize: 10 }}
-                            onClick=${async () => {
-                              await api(`/api/jobs/${job.id}/cancel`, { method: 'POST' });
-                              setModalJobs(prev => prev.map(j => j.id === job.id ? { ...j, status: 'cancelled' } : j));
-                            }}>Cancel</button>`
-                        )}
-                        ${job.status === 'running' && (
-                          html`<button class="btn btn-sm btn-danger" style=${{ padding: '1px 6px', fontSize: 10 }}
-                            onClick=${async () => {
-                              await api(`/api/jobs/${job.id}/cancel`, { method: 'POST' });
-                              setModalJobs(prev => prev.map(j => j.id === job.id ? { ...j, status: 'cancelled' } : j));
-                            }}>Stop</button>`
-                        )}
-                        ${(job.result || job.error) && (
-                          html`<button class="btn btn-sm" style=${{ padding: '1px 6px', fontSize: 10 }}
-                            onClick=${() => {
-                              downloadBlob(job.result || job.error, `${job.hostname}-${job.type}-${job.id.slice(0,8)}.log`);
-                            }}>Download Log</button>`
-                        )}
-                      </div>
-                    </div>
-                    ${(job.result || job.error) && (
-                      html`<div class="output-log" style=${{ maxHeight: 150, fontSize: 10 }}>
-                        ${job.result || job.error}
-                      </div>`
-                    )}
-                    ${['pending','sent','running'].includes(job.status) && !job.result && (
-                      html`<div style=${{ fontSize: 10, color: 'var(--text-dim)', fontStyle: 'italic' }}>
-                        ${job.status === 'running' ? 'Running...' : 'Queued...'}
-                      </div>`
-                    )}
-                  </div>`
-                ))}
-              </div>
+              <div style=${{ maxHeight: 520, overflowY: 'auto' }}><${JobCards} jobs=${modalJobs} setJobs=${setModalJobs}/></div>
             </div>`
           )}
         <//>`
@@ -707,33 +740,9 @@ export default function ActionsPage({ hosts, addToast }) {
           ${modalJobs.length > 0 && (
             html`<div style=${{ borderTop: '1px solid var(--border)', paddingTop: 12 }}>
               <div style=${{ fontSize: 11, fontWeight: 700, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 }}>
-                Output (${modalJobs.filter(j => ['pending','sent','running'].includes(j.status)).length} active)
+                Output (${modalJobs.filter(j => OPEN.includes(j.status)).length} active)
               </div>
-              <div style=${{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 400, overflowY: 'auto' }}>
-                ${modalJobs.map(job => (
-                  html`<div key=${job.id} style=${{
-                    background: 'var(--bg-primary)', border: '1px solid var(--border)',
-                    borderRadius: 6, padding: 10,
-                    borderLeftColor: job.status === 'completed' ? 'var(--green)' : job.status === 'failed' ? 'var(--red)' : job.status === 'running' ? 'var(--accent)' : 'var(--yellow)',
-                    borderLeftWidth: 3
-                  }}>
-                    <div style=${{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                      <${StatusBadge} status=${job.status}/>
-                      <span style=${{ fontSize: 11, color: 'var(--text-secondary)' }}>${job.hostname}</span>
-                    </div>
-                    ${(job.result || job.error) && (
-                      html`<div class="output-log" style=${{ maxHeight: 150, fontSize: 10 }}>
-                        ${job.result || job.error}
-                      </div>`
-                    )}
-                    ${['pending','sent','running'].includes(job.status) && !job.result && (
-                      html`<div style=${{ fontSize: 10, color: 'var(--text-dim)', fontStyle: 'italic' }}>
-                        ${job.status === 'running' ? 'Running...' : 'Queued...'}
-                      </div>`
-                    )}
-                  </div>`
-                ))}
-              </div>
+              <div style=${{ maxHeight: 520, overflowY: 'auto' }}><${JobCards} jobs=${modalJobs} setJobs=${setModalJobs}/></div>
             </div>`
           )}
         <//>`
@@ -743,66 +752,12 @@ export default function ActionsPage({ hosts, addToast }) {
       ${trackedJobs.length > 0 && (
         html`<div ref=${outputRef} class="card" style=${{ marginTop: 8 }}>
           <div class="card-header">
-            <span class="card-title">Job Output (${trackedJobs.filter(j => ['pending','sent','running'].includes(j.status)).length} active)</span>
+            <span class="card-title">Job Output (${trackedJobs.filter(j => OPEN.includes(j.status)).length} active)</span>
             <div class="btn-group">
               <button class="btn btn-sm" onClick=${() => setTrackedJobs([])}>Clear All</button>
             </div>
           </div>
-          <div style=${{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            ${trackedJobs.map(job => (
-              html`<div key=${job.id} style=${{
-                background: 'var(--bg-primary)', border: '1px solid var(--border)',
-                borderRadius: 6, padding: 12,
-                borderLeftColor: job.status === 'completed' ? 'var(--green)' : job.status === 'failed' ? 'var(--red)' : job.status === 'running' ? 'var(--accent)' : 'var(--yellow)',
-                borderLeftWidth: 3
-              }}>
-                <div style=${{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                  <${StatusBadge} status=${job.status}/>
-                  <span style=${{ fontFamily: 'Geist Mono, monospace', fontSize: 12, color: 'var(--text-primary)' }}>
-                    ${job.type}
-                  </span>
-                  <span style=${{ fontSize: 11, color: 'var(--text-dim)' }}>
-                    ${job.hostname}
-                  </span>
-                  <div style=${{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
-                    ${['pending','sent'].includes(job.status) && (
-                      html`<button class="btn btn-sm" style=${{ padding: '2px 8px' }}
-                        onClick=${async () => {
-                          await api(`/api/jobs/${job.id}/cancel`, { method: 'POST' });
-                          setTrackedJobs(prev => prev.map(j => j.id === job.id ? { ...j, status: 'cancelled' } : j));
-                        }}>Cancel</button>`
-                    )}
-                    ${job.status === 'running' && (
-                      html`<button class="btn btn-sm btn-danger" style=${{ padding: '2px 8px' }}
-                        onClick=${async () => {
-                          await api(`/api/jobs/${job.id}/cancel`, { method: 'POST' });
-                          setTrackedJobs(prev => prev.map(j => j.id === job.id ? { ...j, status: 'cancelled' } : j));
-                        }}>Stop</button>`
-                    )}
-                    ${(job.result || job.error) && (
-                      html`<button class="btn btn-sm" style=${{ padding: '2px 8px' }}
-                        onClick=${() => {
-                          downloadBlob(job.result || job.error, `${job.hostname}-${job.type}-${job.id.slice(0,8)}.log`);
-                        }}>Download</button>`
-                    )}
-                  </div>
-                </div>
-                ${(job.result || job.error) && (
-                  html`<div class="output-log" style=${{
-                    maxHeight: 200, fontSize: 11,
-                    borderColor: job.error ? 'var(--red)' : 'var(--border)'
-                  }}>
-                    ${job.result || job.error}
-                  </div>`
-                )}
-                ${['pending','sent','running'].includes(job.status) && !job.result && (
-                  html`<div style=${{ fontSize: 11, color: 'var(--text-dim)', fontStyle: 'italic' }}>
-                    ${job.status === 'running' ? 'Running, waiting for output...' : 'Queued, waiting for agent...'}
-                  </div>`
-                )}
-              </div>`
-            ))}
-          </div>
+          <${JobCards} jobs=${trackedJobs} setJobs=${setTrackedJobs}/>
         </div>`
       )}
     </div>`

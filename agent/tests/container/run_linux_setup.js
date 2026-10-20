@@ -182,4 +182,7 @@ async function main() {
   return failed ? 1 : 0;
 }
 
-main().then(code => process.exit(code));
+if (require.main === module) main().then(code => process.exit(code));
+
+// Shared with run_linux_jobs.js. connect() picks local docker or the ssh docker host and returns the mode or null.
+module.exports = { connect: () => (mode = detect()), docker, copyRepo, startServer, cleanup, exec, waitFor, log, containers, P, NET, SRV };

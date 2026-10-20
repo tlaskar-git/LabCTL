@@ -38,8 +38,9 @@ test('agent enrolment tokens: missing, bad and revoked tokens get 401; blocklist
   const framePromise = nextMessage(ws);
   const job = await call('POST', '/api/jobs', { host_id: 'h-test', type: 'custom_command', params: { command: 'uptime' } });
   const frame = await framePromise;
-  assert.equal(frame.type, 'job');
-  assert.equal(frame.job.id, job.data.id);
+  assert.equal(frame.type, 'run_job'); // typed v1 jobs are translated to a script (legacy-jobs.js)
+  assert.equal(frame.job_id, job.data.id);
+  assert.equal(frame.env.LABCTL_P_COMMAND, 'uptime');
   ws.send(JSON.stringify({ type: 'job_output', job_id: job.data.id, seq: 1, stream: 'stdout', chunk: 'up 1 day\n' }));
   ws.send(JSON.stringify({ type: 'job_complete', job_id: job.data.id, status: 'success', exit_code: 0, duration_ms: 5 }));
   await waitFor(() => s.ctx.jobs.get(job.data.id).status === 'completed');

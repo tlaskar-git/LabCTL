@@ -118,6 +118,7 @@ Agent to server:
 - `register` `{type:"register", host_id, hostname, os:"linux|darwin|windows", os_version, arch, agent_version, kind:"agent", info:{...}}`
 - `heartbeat` `{type:"heartbeat", host_id, agent_version, ts, cpu, ram, load:[1,5,15], uptime}` every 30 s
 - `inventory` `{type:"inventory", host_id, ts, data:{...}}` every 5 min and on request
+- `job_started` `{type:"job_started", job_id}` as soon as a `run_job` arrives (the server marks the job running)
 - `job_output` `{type:"job_output", job_id, seq, stream:"stdout|stderr", chunk}` flushed at most every 1 s or 4 KB
 - `job_complete` `{type:"job_complete", job_id, status:"success|failed|cancelled", exit_code, duration_ms}`
 - `pong`, and `agent_gone` `{type:"agent_gone", host_id}` after an uninstall job
@@ -130,6 +131,9 @@ Server to agent:
 - `uninstall` `{type:"uninstall"}`
 - `collect` `{type:"collect"}` (force inventory)
 - `ping` `{type:"ping"}`
+- `job` `{type:"job", job:{id, type, params, ...}}` is the v1 frame, sent only for a typed job this server cannot
+  translate. A v2 agent answers it with a stderr line `Unsupported job type <type> for this agent version` and
+  `job_complete` `failed`, so it never waits silently.
 
 Rejection: a missing, invalid or revoked token gets HTTP 401 on upgrade. A blocklisted host gets close code 4403
 with reason `blocked`. Tokens are never logged. Audit and log lines redact tokens, passwords, Authorization headers
@@ -165,6 +169,23 @@ Output never goes into the database. It is appended to `data/job-logs/<job_id>.l
 runs, the tail lives in `<job_id>.tail`; completion folds it into the `.log`.
 `GET /api/jobs/:id` returns the whole log as `result`, `GET /api/jobs` returns the last 4 KB, and
 `GET /api/jobs/:id/log` returns plain text.
+
+Typed v1 jobs (`linux_update`, `docker_update`, `backup`, `reboot`, `list_crons`, `custom_command`,
+`service_control`, `disk_cleanup`, `file_browse`, `windows_update`, `autologin`, `disable_autologin`,
+`list_task_folders`) have no script in their row. `server/src/legacy-jobs.js` translates them at send time into a
+normal `run_job`: bash for Linux and macOS, PowerShell for Windows, from the scripts in `server/src/legacy-jobs/`
+(ported from the v1 agent handlers). Agent hosts, SSH hosts and schedules all use this path. Params become
+`LABCTL_P_<NAME>` variables (lists one item per line, booleans 1 or 0) and are never put into script text.
+`custom_command` runs the operator's command with `bash -c "$LABCTL_P_COMMAND"`, or on Windows through `cmd.exe`
+(as v1) or PowerShell with `shell: "powershell"`. An auto-login password is sealed into the host's credential when
+the job is created (admin only) and reaches the agent only as `LABCTL_SECRET_PASSWORD` in the `run_job` env.
+For `list_crons`, `file_browse` and `list_task_folders` the server stores `result_text` at completion: the JSON after
+a final `LABCTL_RESULT_JSON ` line (Windows scheduled tasks), else the output. `result` returns it whole.
+
+Nothing waits silently. A job created for an offline host stays `pending` with the error
+`Host is offline, the job starts when it reconnects`. A job `sent` (column `sent_at`) with no start and no bytes for
+`job_sent_timeout_s` (default 120) is marked `failed` by a 15 s sweeper; a late `job_complete` still records the real
+result.
 
 ## Scheduler
 

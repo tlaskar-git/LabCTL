@@ -59,6 +59,10 @@ export default function JobsPage({ hosts, addToast, currentUser }) {
   };
 
   const rows = status === 'all' ? jobs : jobs.filter(j => j.status === status);
+  // Re-render every 5 s while a job waits in 'sent', so its waiting time stays current.
+  const [, tick] = useState(0);
+  const waiting = jobs.some(j => j.status === 'sent');
+  useEffect(() => { if (!waiting) return; const i = setInterval(() => tick(n => n + 1), 5000); return () => clearInterval(i); }, [waiting]);
   const set = k => e => setF({ ...f, [k]: e.target.value });
   const hostName = id => (hosts.find(h => h.id === id) || {}).hostname || id;
 
@@ -114,7 +118,11 @@ export default function JobsPage({ hosts, addToast, currentUser }) {
         <thead><tr><th>Status</th><th>Type</th><th>Host</th><th>Started by</th><th>Created</th><th>Duration</th><th>Actions</th></tr></thead>
         <tbody>
           ${rows.map(job => html`<tr key=${job.id}>
-            <td><${StatusBadge} status=${job.status}/></td>
+            <td><${StatusBadge} status=${job.status}/>
+              ${job.status === 'sent' && !job.bytes_received && html`<div style=${{ fontSize: 11, color: 'var(--text-dim)' }}>
+                Sent to the agent, waiting for the first output (${Math.max(0, Math.round((Date.now() - new Date(job.sent_at || job.created_at)) / 1000))} s)</div>`}
+              ${['pending', 'failed'].includes(job.status) && job.error && html`<div style=${{ fontSize: 11, color: job.status === 'failed' ? 'var(--red)' : 'var(--text-dim)', maxWidth: 320 }}>${job.error}</div>`}
+            </td>
             <td style=${{ fontFamily: 'Geist Mono, monospace', fontSize: 12 }}>${job.type}</td>
             <td>${job.hostname || hostName(job.host_id)}</td>
             <td style=${{ fontSize: 12 }}>${job.started_by || 'system'}</td>

@@ -3,6 +3,21 @@
 All notable changes to LabCTL are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project uses [Semantic Versioning](https://semver.org/).
 
+## [2.0.1] - 2026-10-20
+
+### Fixed
+- Jobs of the types Linux Update, Docker Update, Run Backup, Reboot, List Crons, Custom Command, Service Control, Disk Cleanup, File Browser, Windows Update and Auto-Login ran nothing on v2 agents and stayed in "sent". The server now turns each into a script job, and a job that gets no reply fails after 120 s with a clear message.
+- The Actions page job cards were blank because they read a v1 field. They now show the live output, status line, and a full download.
+- The Linux agent service did not start because systemd rejects a quoted WorkingDirectory. The installers also now fail when the service does not start.
+- Redeploy: hosts migrated from v1 are recognised, every step has a time limit, the dialog can always be closed, and Address, OS, Port and Server URL are editable.
+- Windows remote install over WinRM now uses a Python WinRM client with Negotiate and message encryption.
+- SSH deploy adapts to the sign-in methods a host offers and explains publickey-only hosts.
+
+### Added
+- Shared credentials that are not tied to a host, and a credential picker in the deploy dialogs.
+- Ephemeral runner support: replacement of finished runners, per-runner switch, stuck flag and alert rule.
+- Updater sidecar on an internal-only network, git mode through a remote build context.
+
 ## [2.0.0] - 2026-10-20
 
 ### Migration from 1.x
