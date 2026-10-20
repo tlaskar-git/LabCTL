@@ -1,7 +1,8 @@
-# labctl-updater: no npm dependencies. git and the docker CLI are only used by the optional git mode.
-# Runs as root because the Docker socket is root-owned. Never publish a port for this service.
+# labctl-updater: no npm dependencies. The docker CLI is only used by the optional mounted-checkout git mode.
+# The default git mode needs no git binary: the host Docker daemon fetches the source.
+# Runs as root because the Docker socket is root-owned. Never publish a port and never attach a routable network.
 FROM node:22-alpine
-RUN apk add --no-cache git docker-cli docker-cli-compose
+RUN apk add --no-cache docker-cli docker-cli-compose
 ENV NODE_ENV=production PORT=8080
 WORKDIR /app
 COPY updater/package.json updater/updater.js ./

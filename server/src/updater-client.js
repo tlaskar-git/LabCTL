@@ -1,5 +1,6 @@
 // Client for the labctl-updater sidecar. The shared secret comes from the environment variable
 // LABCTL_UPDATER_SECRET and is read on each call. It is sent only in the X-Updater-Secret header.
+// The base URL is the service name on the internal Compose network (labctl-internal), set by LABCTL_UPDATER_URL.
 function createUpdaterClient({ fetchFn = (...a) => fetch(...a), env = process.env } = {}) {
   const base = () => (env.LABCTL_UPDATER_URL || 'http://labctl-updater:8080').replace(/\/$/, '');
   const configured = () => !!env.LABCTL_UPDATER_SECRET;
@@ -15,7 +16,7 @@ function createUpdaterClient({ fetchFn = (...a) => fetch(...a), env = process.en
     configured,
     status: () => call('GET', '/status'),
     update: tag => call('POST', '/update', { image_tag: tag }),
-    updateGit: () => call('POST', '/update-git', {}),
+    updateGit: (repo, ref) => call('POST', '/update-git', { repo, ref }),
     rollback: () => call('POST', '/rollback', {})
   };
 }

@@ -77,12 +77,28 @@ test('apply: admin only, typed confirmation required, then proxied with the shar
 });
 
 test('apply in git mode calls /update-git; mode is validated', async (t) => {
-  const urls = [];
-  const { admin } = await setup(t, async (url) => { urls.push(url); return json(202, { state: 'running', steps: [] }); });
+  const urls = [], bodies = [];
+  const { admin } = await setup(t, async (url, opts) => { urls.push(url); bodies.push(JSON.parse(opts.body)); return json(202, { state: 'running', steps: [] }); });
   assert.equal((await admin('PUT', '/api/updates/mode', { mode: 'svn' })).status, 400);
-  assert.equal((await admin('PUT', '/api/updates/mode', { mode: 'git' })).data.update_mode, 'git');
+  const m = await admin('PUT', '/api/updates/mode', { mode: 'git' });
+  assert.equal(m.data.update_mode, 'git');
+  assert.deepEqual([m.data.git_repo, m.data.git_ref], ['https://github.com/tlaskar-git/LabCTL.git', 'main']);
   assert.equal((await admin('POST', '/api/updates/apply', { confirm: 'UPDATE' })).status, 202);
   assert.deepEqual(urls, ['http://labctl-updater:8080/update-git']);
+  assert.deepEqual(bodies[0], { repo: 'https://github.com/tlaskar-git/LabCTL.git', ref: 'main' });
+});
+
+test('git repo and ref are stored, validated against the allowlist, and sent to the updater', async (t) => {
+  const bodies = [];
+  const { admin } = await setup(t, async (url, opts) => { bodies.push(JSON.parse(opts.body)); return json(202, { state: 'running', steps: [] }); });
+  for (const bad of [{ git_repo: 'http://github.com/a/b' }, { git_repo: 'https://example.test/a/b' }, { git_repo: 'https://github.com@example.test/a/b' },
+    { git_repo: 'git@github.com:a/b.git' }, { git_ref: '--upload-pack=x' }, { git_ref: 'a..b' }, { git_ref: 'a#b' }, { git_ref: 'a:b' }]) {
+    assert.equal((await admin('PUT', '/api/updates/mode', { mode: 'git', ...bad })).status, 400, JSON.stringify(bad));
+  }
+  const ok = await admin('PUT', '/api/updates/mode', { mode: 'git', git_repo: 'https://github.com/example-org/labctl', git_ref: 'release/2.1' });
+  assert.equal(ok.status, 200);
+  assert.equal((await admin('POST', '/api/updates/apply', { confirm: 'UPDATE' })).status, 202);
+  assert.deepEqual(bodies, [{ repo: 'https://github.com/example-org/labctl', ref: 'release/2.1' }]);
 });
 
 test('apply without a configured sidecar secret is refused', async (t) => {

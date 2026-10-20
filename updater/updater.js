@@ -1,8 +1,10 @@
 'use strict';
 // labctl-updater: tiny sidecar that updates the labctl container. No dependencies.
-// Internal network only (no published ports). Every request except GET /healthz needs the header
+// Internal network only (no published ports, no egress). Every request except GET /healthz needs the header
 // X-Updater-Secret equal to the environment variable LABCTL_UPDATER_SECRET.
-// Endpoints: POST /update {image_tag}, POST /update-git, POST /rollback, GET /status, GET /healthz.
+// Endpoints: POST /update {image_tag}, POST /update-git {repo?, ref?}, POST /rollback, GET /status, GET /healthz.
+// This container never fetches anything itself. The Docker daemon on the host pulls images (image mode) and
+// fetches the git source (git mode, Engine API build with a remote context).
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -10,6 +12,11 @@ const crypto = require('node:crypto');
 const { execFile } = require('node:child_process');
 
 const TAG_RE = /^v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?$/;
+// Git mode allowlist: https, host github.com, owner/repo only. The ref cannot hold ':' or '#' (they split the remote).
+const REPO_RE = /^https:\/\/github\.com\/[A-Za-z0-9_][A-Za-z0-9_.-]*\/[A-Za-z0-9_][A-Za-z0-9_.-]*$/;
+const REF_RE = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,99}$/;
+const DEFAULT_REPO = 'https://github.com/tlaskar-git/LabCTL.git';
+const DEFAULT_REF = 'main';
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const iso = () => new Date().toISOString();
 
@@ -43,13 +50,22 @@ function createDocker(socketPath = '/var/run/docker.sock') {
     });
   }
   const q = encodeURIComponent;
+  // Pull and build progress are JSON lines with HTTP 200. An error line means failure.
+  function failOnErrorLine(text, what) {
+    for (const line of text.split('\n')) {
+      let o = null;
+      try { o = JSON.parse(line); } catch { continue; }
+      if (o && o.error) throw new Error(`${what} failed: ${o.error}`);
+    }
+  }
   return {
     inspect: async name => (await request('GET', `/containers/${q(name)}/json`)).json,
     async pull(image, tag) {
-      const { text } = await request('POST', `/images/create?fromImage=${q(image)}&tag=${q(tag)}`);
-      for (const line of text.split('\n')) { // pull progress is JSON lines; an error line means failure
-        try { const o = JSON.parse(line); if (o.error) throw new Error(`pull failed: ${o.error}`); } catch (e) { if (e.message.startsWith('pull failed')) throw e; }
-      }
+      failOnErrorLine((await request('POST', `/images/create?fromImage=${q(image)}&tag=${q(tag)}`)).text, 'pull');
+    },
+    // The daemon on the host fetches the remote context, so this container needs no egress.
+    async build({ remote, dockerfile, tag }) {
+      failOnErrorLine((await request('POST', `/build?remote=${q(remote)}&dockerfile=${q(dockerfile)}&t=${q(tag)}&rm=1&forcerm=1&pull=1`)).text, 'build');
     },
     async stop(name) { try { await request('POST', `/containers/${q(name)}/stop?t=20`); } catch (e) { if (!/-> 304/.test(e.message)) throw e; } },
     async remove(name) { try { await request('DELETE', `/containers/${q(name)}?force=true`); } catch (e) { if (!/-> 404/.test(e.message)) throw e; } },
@@ -143,42 +159,42 @@ function createUpdater(deps) {
       await stage('recreate', () => recreate(inspect, `${image}:${tag}`));
       await stage('health', () => waitHealthy(version));
       end('succeeded');
-    } catch (err) {
-      const failedStep = status.steps.find(s => s.status === 'failed');
-      if (previous && failedStep && ['recreate', 'health'].includes(failedStep.name)) {
-        try { await rollBack(); end('rolled_back', err); } catch (e2) { end('failed', e2); }
-      } else end('failed', err);
-    }
+    } catch (err) { await settle(err); }
     return status;
   }
 
-  // Source installs: git pull, compose build and up. Rolls back to the previous commit when health fails.
-  async function updateGit() {
+  // A failure in recreate or health puts the previous image back. Earlier failures leave the container untouched.
+  async function settle(err) {
+    const failedStep = status.steps.find(s => s.status === 'failed');
+    if (previous?.inspect && failedStep && ['recreate', 'health'].includes(failedStep.name)) {
+      try { await rollBack(); end('rolled_back', err); } catch (e2) { end('failed', e2); }
+    } else end('failed', err);
+  }
+
+  // Git mode. Primary: the Docker daemon builds from a remote git context (POST /build?remote=<url>#<ref>), so this
+  // container runs no git and needs no egress. Fallback: when LABCTL_REPO_DIR is set, build from that mounted
+  // checkout with the docker CLI. The host keeps the checkout current. Rollback is the same as image mode.
+  async function updateGit(opts = {}) {
     const dir = env.repoDir;
-    if (!dir) { const e = new Error('LABCTL_REPO_DIR is not set'); e.code = 400; throw e; }
-    begin('git', 'git pull');
-    const git = (...a) => run('git', ['-C', dir, ...a]);
-    const compose = (...a) => run('docker', ['compose', '-f', path.join(dir, 'server', 'docker-compose.yml'), ...a]);
-    try {
-      const sha = (await stage('inspect', () => git('rev-parse', 'HEAD'))).trim();
-      previous = { sha, inspect: null, version: await health().catch(() => null) };
-      await stage('backup', backup);
-      await stage('pull', () => git('pull', '--ff-only'));
-      await stage('recreate', async () => { await compose('build', name); await compose('up', '-d', name); });
-      const target = fs.existsSync(path.join(dir, 'VERSION')) ? fs.readFileSync(path.join(dir, 'VERSION'), 'utf8').trim() : null;
-      status.target = target || 'git pull';
-      await stage('health', () => waitHealthy(target));
-      end('succeeded');
-    } catch (err) {
-      const failedStep = status.steps.find(s => s.status === 'failed');
-      if (previous?.sha && failedStep && ['recreate', 'health'].includes(failedStep.name)) {
-        try {
-          await stage('rollback', async () => { await git('reset', '--hard', previous.sha); await compose('build', name); await compose('up', '-d', name); });
-          await stage('rollback_health', () => waitHealthy(previous.version));
-          end('rolled_back', err);
-        } catch (e2) { end('failed', e2); }
-      } else end('failed', err);
+    const repo = opts.repo || DEFAULT_REPO, ref = opts.ref || DEFAULT_REF;
+    if (!dir) {
+      if (!REPO_RE.test(repo)) { const e = new Error('repo must be https://github.com/<owner>/<name>'); e.code = 400; throw e; }
+      if (!REF_RE.test(ref) || ref.includes('..')) { const e = new Error('ref contains characters that are not allowed'); e.code = 400; throw e; }
     }
+    const gitTag = `${image}:git`;
+    begin('git', dir ? 'mounted checkout' : `${repo.replace(/^https:\/\//, '')}#${ref}`);
+    const compose = (...a) => run('docker', ['compose', '-f', path.posix.join(dir, 'server', 'docker-compose.yml'), ...a]);
+    try {
+      const inspect = await stage('inspect', () => docker.inspect(name));
+      previous = { imageId: inspect.Image, tag: inspect.Config?.Image, inspect, version: await health().catch(() => null) };
+      status.from = inspect.Config?.Image || inspect.Image;
+      await stage('build', () => (dir ? compose('build', name) : docker.build({ remote: `${repo}#${ref}`, dockerfile: 'server/Dockerfile', tag: gitTag })));
+      await stage('backup', backup);
+      await stage('recreate', () => (dir ? compose('up', '-d', '--no-deps', name) : recreate(inspect, gitTag)));
+      // No version is known up front, so any healthy answer counts. The old container is already gone by then.
+      await stage('health', () => waitHealthy(null));
+      end('succeeded');
+    } catch (err) { await settle(err); }
     return status;
   }
 
@@ -205,7 +221,7 @@ function createServer(updater, secret) {
     req.on('end', async () => {
       let body = {};
       try { body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : {}; } catch { return send(400, { error: 'invalid JSON' }); }
-      const routes = { '/update': () => updater.update(body.image_tag), '/update-git': () => updater.updateGit(), '/rollback': () => updater.rollback() };
+      const routes = { '/update': () => updater.update(body.image_tag), '/update-git': () => updater.updateGit({ repo: body.repo, ref: body.ref }), '/rollback': () => updater.rollback() };
       const fn = routes[req.url];
       if (!fn) return send(404, { error: 'not found' });
       // Start the job, then answer. Validation errors surface through the rejected promise before the first await.
@@ -243,4 +259,4 @@ function main() {
 
 if (require.main === module) main();
 
-module.exports = { createUpdater, createServer, createDocker, createBody, copyDbFiles, secretOk, TAG_RE };
+module.exports = { createUpdater, createServer, createDocker, createBody, copyDbFiles, secretOk, TAG_RE, REPO_RE, REF_RE };

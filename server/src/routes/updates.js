@@ -2,7 +2,7 @@
 //   GET  /api/updates/check            GitHub releases check, cached 15 minutes (?refresh=1 skips the cache)
 //   POST /api/updates/apply            {confirm:"UPDATE", version?} sends the request to the labctl-updater sidecar
 //   GET  /api/updates/status           sidecar progress
-//   PUT  /api/updates/mode             {mode:"image"|"git"} stored in the update_mode setting
+//   PUT  /api/updates/mode             {mode:"image"|"git", git_repo?, git_ref?} stored in update_mode, update_git_repo, update_git_ref
 //   GET  /api/agent/version            bundled agent version
 //   GET  /api/updates/agents           outdated agent count and hosts
 //   POST /api/updates/agents/run       {ring:"ring0"|"ring1"|"ring2"|"all"} ring-by-ring agent self-update
@@ -15,6 +15,13 @@ const { createUpdaterClient } = require('../updater-client');
 
 const RELEASES_URL = 'https://api.github.com/repos/tlaskar-git/LabCTL/releases/latest';
 const CACHE_MS = 15 * 60 * 1000;
+// Git mode allowlist (same rule as the updater, which checks again): https, host github.com, owner/name only.
+const GIT_REPO_RE = /^https:\/\/github\.com\/[A-Za-z0-9_][A-Za-z0-9_.-]*\/[A-Za-z0-9_][A-Za-z0-9_.-]*$/;
+const GIT_REF_RE = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,99}$/;
+const DEFAULT_GIT_REPO = 'https://github.com/tlaskar-git/LabCTL.git';
+const DEFAULT_GIT_REF = 'main';
+const validGitRepo = v => typeof v === 'string' && GIT_REPO_RE.test(v);
+const validGitRef = v => typeof v === 'string' && GIT_REF_RE.test(v) && !v.includes('..');
 const RINGS = ['ring0', 'ring1', 'ring2'];
 
 function parseVersion(v) {
@@ -63,18 +70,30 @@ module.exports = (app, ctx) => {
     try { res.json({ configured: true, ...(await client.status()) }); } catch (err) { res.status(502).json({ error: `Updater unreachable: ${err.message}` }); }
   });
 
+  // Settings update_git_repo (default tlaskar-git/LabCTL on GitHub) and update_git_ref (default main) feed git mode.
+  const gitRepo = () => ctx.settings.get('update_git_repo') || DEFAULT_GIT_REPO;
+  const gitRef = () => ctx.settings.get('update_git_ref') || DEFAULT_GIT_REF;
+
   app.put('/api/updates/mode', admin, (req, res) => {
-    if (!['image', 'git'].includes(req.body?.mode)) return res.status(400).json({ error: 'mode must be image or git' });
-    ctx.settings.set('update_mode', req.body.mode);
-    res.json({ update_mode: mode() });
+    const { mode: m, git_repo: repo, git_ref: ref } = req.body || {};
+    if (!['image', 'git'].includes(m)) return res.status(400).json({ error: 'mode must be image or git' });
+    if (repo !== undefined && !validGitRepo(repo)) return res.status(400).json({ error: 'git_repo must be https://github.com/<owner>/<name>' });
+    if (ref !== undefined && !validGitRef(ref)) return res.status(400).json({ error: 'git_ref contains characters that are not allowed' });
+    ctx.settings.set('update_mode', m);
+    if (repo !== undefined) ctx.settings.set('update_git_repo', repo);
+    if (ref !== undefined) ctx.settings.set('update_git_ref', ref);
+    res.json({ update_mode: mode(), git_repo: gitRepo(), git_ref: gitRef() });
   });
 
   app.post('/api/updates/apply', admin, ctx.requireConfirm('UPDATE'), async (req, res) => {
     if (!client.configured()) return res.status(503).json({ error: 'The updater sidecar is not configured (LABCTL_UPDATER_SECRET is empty)' });
     try {
       let out;
-      if (mode() === 'git') out = await client.updateGit();
-      else {
+      if (mode() === 'git') {
+        // The settings can be written through the generic settings route, so check them again here.
+        if (!validGitRepo(gitRepo()) || !validGitRef(gitRef())) return res.status(400).json({ error: 'update_git_repo or update_git_ref is not allowed' });
+        out = await client.updateGit(gitRepo(), gitRef());
+      } else {
         const tag = req.body.version || (await latestRelease(false)).tag;
         if (!/^v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?$/.test(tag)) return res.status(400).json({ error: 'version must look like v1.2.3' });
         out = await client.update(tag);
