@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'preact/hooks';
 import { api } from '../api.js';
 import { html, Modal } from '../ui.js';
-import { DeployLog } from '../components/deploy-log.js';
+import { DeployLog, useDeployClose } from '../components/deploy-log.js';
 import { ManualInstall } from '../components/deploy-manual.js';
 
 const STEPS = ['Target', 'Credentials', 'Pre-flight', 'Install', 'Result'];
@@ -114,8 +114,9 @@ export default function AddHost({ onClose, addToast, currentUser }) {
   const back = () => setStep(s => Math.max(0, s - 1));
   const next = () => (step === 1 ? runPreflight() : step === 2 ? install() : setStep(s => s + 1));
   const locked = step >= 3 && !result;
+  const close = useDeployClose(locked && !!deployId, onClose, addToast);
 
-  return html`<${Modal} title="Add host" onClose=${locked ? () => {} : onClose}>
+  return html`<${Modal} title="Add host" onClose=${close}>
     <div class="tabs" style=${{ marginBottom: 12 }}>
       <button class=${`tab ${tab === 'network' ? 'active' : ''}`} onClick=${() => setTab('network')} disabled=${locked}>Install over the network</button>
       <button class=${`tab ${tab === 'manual' ? 'active' : ''}`} onClick=${() => setTab('manual')} disabled=${locked}>Manual command</button>
@@ -128,6 +129,7 @@ export default function AddHost({ onClose, addToast, currentUser }) {
       ${step === 1 && credStep}
       ${step === 2 && preStep}
       ${step === 3 && deployId && html`<${DeployLog} deployId=${deployId} onDone=${finish}/>`}
+      ${locked && html`<div class="btn-group" style=${{ justifyContent: 'flex-end', marginTop: 12 }}><button class="btn" onClick=${close}>Hide (the deploy goes on)</button></div>`}
       ${step === 4 && resultStep}
       ${error && step < 2 && html`<div style=${{ color: 'var(--red)', fontSize: 13 }}>${error}</div>`}
       ${step < 3 && html`<div class="btn-group" style=${{ justifyContent: 'flex-end', marginTop: 16 }}>

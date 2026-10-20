@@ -9,6 +9,9 @@ const { parseKv } = require('./unix');
 const psq = v => `'${String(v).replace(/'/g, "''")}'`;
 const MIN_FREE_KB = 204800;
 const PORTS = [22, 5986, 5985];
+const NO_WAY_IN = 'LabCTL needs one of two ways in to a Windows host: (1) the OpenSSH Server optional feature on port 22 '
+  + '(Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0, then Start-Service sshd), or (2) WinRM on port 5985 (HTTP) or 5986 (HTTPS) '
+  + '(run winrm quickconfig as an administrator). Also check that the Windows firewall allows the port from the LabCTL server.';
 const kindOf = port => (port === 5985 || port === 5986 ? 'winrm' : 'ssh');
 // One line only: PowerShell reading a script from stdin (-Command -) drops multi-line blocks without any error.
 const oneLine = body => body.split(/\r?\n/).map(l => l.trim()).filter(Boolean).join(";");
@@ -49,10 +52,10 @@ async function pickTransport(t) {
   const ports = t.port ? [t.port] : PORTS;
   const tried = [];
   for (const port of ports) {
-    const open = await conn.tcpOpen(t.address, port);
+    const why = await conn.tcpCheck(t.address, port);
     const kind = kindOf(port);
-    tried.push(`${port} ${open ? 'open' : 'closed'} (${kind === 'ssh' ? 'OpenSSH' : port === 5986 ? 'WinRM over HTTPS' : 'WinRM over HTTP'})`);
-    if (open) return { port, kind, tried };
+    tried.push(`${port} ${why ? 'closed' : 'open'} (${kind === 'ssh' ? 'OpenSSH' : port === 5986 ? 'WinRM over HTTPS' : 'WinRM over HTTP'})${why ? `: ${why}` : ''}`);
+    if (!why) return { port, kind, tried };
   }
   return { port: null, kind: null, tried };
 }
@@ -80,7 +83,7 @@ async function run(session, body) {
 async function inspect(t, h, open = openSession) {
   const checks = [];
   const pick = await pickTransport(t);
-  checks.push({ name: 'Port reachability', ok: !!pick.kind, detail: pick.kind ? pick.tried.join(', ') : `${pick.tried.join(', ')}. Enable OpenSSH (22) or WinRM (5985, 5986).` });
+  checks.push({ name: 'Port reachability', ok: !!pick.kind, detail: pick.kind ? pick.tried.join(', ') : `${pick.tried.join(', ')}. ${NO_WAY_IN}` });
   if (!pick.kind) return { checks };
   const tt = { ...t, port: pick.port };
   let session;
@@ -113,7 +116,7 @@ Set-Content -Path (Join-Path $PSScriptRoot 'run.exit') -Value $rc
 
 async function install(t, h, { pollMs = 2000, maxMs = 1200000, open = openSession } = {}) {
   const pick = t.port ? { port: t.port, kind: kindOf(t.port) } : await pickTransport(t);
-  if (!pick.kind) throw new Error(`No OpenSSH or WinRM port is open on ${t.address}.`);
+  if (!pick.kind) throw new Error(`No OpenSSH or WinRM port is open on ${t.address}. ${NO_WAY_IN}`);
   const session = await open({ ...t, port: pick.port }, pick.kind);
   const un = h.mode === 'uninstall';
   try {

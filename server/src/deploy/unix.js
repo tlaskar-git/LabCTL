@@ -100,9 +100,9 @@ async function runCapture(client, command, opts = {}) {
 
 async function inspect(t, h) {
   const checks = [];
-  const open = await conn.tcpOpen(t.address, t.port);
-  checks.push({ name: 'Port reachability', ok: open, detail: open ? `${t.address}:${t.port} accepts connections` : `${t.address}:${t.port} is not reachable (closed, filtered or the host is down).` });
-  if (!open) return { checks };
+  const why = await conn.tcpCheck(t.address, t.port);
+  checks.push({ name: 'Port reachability', ok: !why, detail: why ? `${t.address}:${t.port} is not reachable: ${why}.` : `${t.address}:${t.port} accepts connections` });
+  if (why) return { checks };
   let session;
   try { session = await conn.connect(t); } catch (e) { checks.push({ name: 'SSH sign-in', ok: false, detail: e.message }); return { checks }; }
   try {

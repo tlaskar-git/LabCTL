@@ -3,7 +3,7 @@ const net = require('net');
 const { Client } = require('ssh2');
 const { fingerprint } = require('../ssh');
 
-function explain(err, t) {
+function explain(err, t, ms = 15000) {
   const m = String(err.message || err);
   const where = `${t.address}:${t.port}`;
   if (/authentication methods failed|Permission denied/i.test(m)) return `Authentication failed for ${t.user} on ${t.address}. Check the user name and the password or key.`;
@@ -12,17 +12,19 @@ function explain(err, t) {
   if (err.code === 'ECONNREFUSED') return `Connection refused on ${where}. Is the SSH service running?`;
   if (err.code === 'ENOTFOUND') return `Cannot resolve ${t.address}.`;
   if (err.code === 'EHOSTUNREACH' || err.code === 'ENETUNREACH') return `No route to ${t.address}. Use a relay host or check the network.`;
-  if (err.code === 'ETIMEDOUT' || /Timed out/i.test(m)) return `Timed out connecting to ${where}.`;
+  if (err.code === 'ETIMEDOUT' || /Timed out/i.test(m)) return `Timed out after ${Math.round(ms / 1000)} s connecting to ${where}.`;
   return m;
 }
 
-// Resolves true when a TCP connection opens within ms.
-const tcpOpen = (host, port, ms = 5000) => new Promise(resolve => {
+// Resolves null when a TCP connection opens within ms, else the reason in plain words.
+const tcpCheck = (host, port, ms = 5000) => new Promise(resolve => {
   const s = net.connect({ host, port });
-  const done = ok => { s.destroy(); resolve(ok); };
-  s.setTimeout(ms, () => done(false));
-  s.once('connect', () => done(true));
-  s.once('error', () => done(false));
+  const done = why => { s.destroy(); resolve(why); };
+  s.setTimeout(ms, () => done(`timed out after ${Math.round(ms / 1000)} s (filtered, or the host is down)`));
+  s.once('connect', () => done(null));
+  s.once('error', e => done(e.code === 'ECONNREFUSED' ? `connection refused on port ${port}`
+    : e.code === 'EHOSTUNREACH' || e.code === 'ENETUNREACH' ? 'no route to host'
+      : e.code === 'ENOTFOUND' || e.code === 'EAI_AGAIN' ? `cannot resolve ${host}` : e.code || e.message));
 });
 
 // Resolves { client, hostKey }. t.hostKey (a SHA256: fingerprint) is compared when set: a mismatch refuses the connection.
@@ -32,7 +34,7 @@ function connect(t, { readyTimeout = 15000 } = {}) {
     let seen = null;
     let mismatch = false;
     client.on('error', err => reject(new Error(mismatch
-      ? `Host key mismatch for ${t.address}: expected ${t.hostKey}, got ${seen}. Refusing to continue.` : explain(err, t))));
+      ? `Host key mismatch for ${t.address}: expected ${t.hostKey}, got ${seen}. Refusing to continue.` : explain(err, t, readyTimeout))));
     client.on('ready', () => resolve({ client, hostKey: seen }));
     client.connect({
       host: t.address, port: t.port, username: t.user, password: t.password || undefined,
@@ -68,4 +70,4 @@ async function put(client, dir, files) {
   } finally { sftp.end(); }
 }
 
-module.exports = { tcpOpen, connect, exec, put, explain };
+module.exports = { tcpCheck, connect, exec, put, explain };

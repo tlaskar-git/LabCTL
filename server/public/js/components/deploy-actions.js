@@ -1,7 +1,7 @@
-import { useState } from 'preact/hooks';
+import { useState, useEffect } from 'preact/hooks';
 import { api } from '../api.js';
 import { html, Modal, Icons } from '../ui.js';
-import { DeployLog } from './deploy-log.js';
+import { DeployLog, useDeployClose } from './deploy-log.js';
 
 const field = (label, input) => html`<div class="form-group"><label class="form-label">${label}</label>${input}</div>`;
 
@@ -21,34 +21,58 @@ function Creds({ f, set, saved, isAdmin, offerSave }) {
 }
 const authOf = f => ({ ...(f.user ? { user: f.user } : {}), ...(f.password ? { password: f.password } : {}), ...(f.private_key ? { private_key: f.private_key } : {}),
   ...(f.sudo_password ? { sudo_password: f.sudo_password } : {}) });
-const blank = { user: '', password: '', private_key: '', sudo_password: '', save_credential: false, also_remove: false, confirm: '' };
+const blank = { user: '', password: '', private_key: '', sudo_password: '', save_credential: false, also_remove: false, confirm: '',
+  address: '', os: 'linux', port: '' };
+const ADDRESS = /^(?!-)[A-Za-z0-9._:-]{1,253}$/; // same rule as the server
 
-// Re-runs the install on a host. The host keeps its id.
+// Close button under a running deploy, and the one under a finished one.
+const closeRow = (result, close, onDone) => html`<div class="btn-group" style=${{ justifyContent: 'flex-end', marginTop: 12 }}>
+  <button class=${`btn ${result ? 'btn-primary' : ''}`} onClick=${() => { if (result) onDone?.(); close(); }}>${result ? 'Close' : 'Hide (the deploy goes on)'}</button>
+</div>`;
+
+// Re-runs the install on a host. The host keeps its id. Address, OS and port come prefilled from the server and can be changed.
 export function RedeployDialog({ host, isAdmin, addToast, onClose, onDone }) {
-  const dd = host.data?.deploy || {};
   const [f, setF] = useState(blank);
+  const [saved, setSaved] = useState(!!host.data?.deploy?.credential_id);
   const [deployId, setDeployId] = useState(null);
   const [result, setResult] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
+  const close = useDeployClose(!!deployId && !result, onClose, addToast);
+  useEffect(() => {
+    api(`/api/hosts/${encodeURIComponent(host.id)}/deploy-target`)
+      .then(d => { setF(p => ({ ...p, address: d.address || '', os: d.os || 'linux', port: d.port ? String(d.port) : '' })); setSaved(d.has_credential); })
+      .catch(e => setError(`Could not read the saved target: ${e.message}`));
+  }, [host.id]);
+  const addressOk = ADDRESS.test(f.address.trim());
+  const portOk = !f.port || (/^\d{1,5}$/.test(f.port) && Number(f.port) >= 1 && Number(f.port) <= 65535);
   const go = async () => {
     setBusy(true); setError('');
-    try { setDeployId((await api(`/api/hosts/${encodeURIComponent(host.id)}/redeploy`, { method: 'POST', body: { auth: authOf(f), save_credential: f.save_credential } })).deploy_id); }
-    catch (e) { setError(e.message); setBusy(false); }
+    try {
+      setDeployId((await api(`/api/hosts/${encodeURIComponent(host.id)}/redeploy`, { method: 'POST',
+        body: { address: f.address.trim(), os: f.os, port: f.port ? Number(f.port) : undefined, auth: authOf(f), save_credential: f.save_credential } })).deploy_id);
+    } catch (e) { setError(e.message); setBusy(false); }
   };
-  return html`<${Modal} title=${`Redeploy agent on ${host.hostname || host.id}`} onClose=${deployId && !result ? () => {} : onClose}>
+  return html`<${Modal} title=${`Redeploy agent on ${host.hostname || host.id}`} onClose=${close}>
     ${!deployId && html`<div>
-      <div class="page-desc" style=${{ marginBottom: 12 }}>Reinstalls the agent over the network${dd.address ? ` on ${dd.address}` : ''}. The host keeps its id and history. A new deploy token is made for it.</div>
-      <${Creds} f=${f} set=${set} saved=${!!dd.credential_id} isAdmin=${isAdmin} offerSave=${true}/>
-      ${error && html`<div style=${{ color: 'var(--red)', fontSize: 13 }}>${error}</div>`}
+      <div class="page-desc" style=${{ marginBottom: 12 }}>Reinstalls the agent over the network. The host keeps its id and history. A new deploy token is made for it.</div>
+      <div class="form-row">
+        ${field('Address', html`<input class="input" value=${f.address} placeholder="192.0.2.10 or host.example.test" onInput=${e => set('address', e.target.value)} aria-invalid=${!addressOk}/>`)}
+        ${field('Operating system', html`<select class="select" value=${f.os} onChange=${e => set('os', e.target.value)}>
+          <option value="linux">Linux</option><option value="mac">Mac</option><option value="windows">Windows</option></select>`)}
+        ${field(f.os === 'windows' ? 'Port (blank: try 22, 5986, 5985)' : 'SSH port (blank: 22)', html`<input class="input" inputmode="numeric" value=${f.port} onInput=${e => set('port', e.target.value.trim())} aria-invalid=${!portOk}/>`)}
+      </div>
+      ${!addressOk && html`<div class="page-desc" style=${{ marginBottom: 8 }}>${f.address ? 'The address can only hold letters, digits, dots, colons, hyphens and underscores.' : 'LabCTL does not know an address for this host. Enter it.'}</div>`}
+      <${Creds} f=${f} set=${set} saved=${saved} isAdmin=${isAdmin} offerSave=${true}/>
+      ${error && html`<div style=${{ color: 'var(--red)', fontSize: 13 }} role="alert">${error}</div>`}
       <div class="btn-group" style=${{ justifyContent: 'flex-end', marginTop: 12 }}>
-        <button class="btn" onClick=${onClose}>Cancel</button>
-        <button class="btn btn-primary" onClick=${go} disabled=${busy || (!dd.credential_id && !f.user)}>${busy ? 'Starting...' : 'Redeploy'}</button>
+        <button class="btn" onClick=${close}>Cancel</button>
+        <button class="btn btn-primary" onClick=${go} disabled=${busy || !addressOk || !portOk || (!saved && !f.user)}>${busy ? 'Starting...' : 'Redeploy'}</button>
       </div>
     </div>`}
     ${deployId && html`<${DeployLog} deployId=${deployId} onDone=${d => { setResult(d); addToast(d.state === 'done' ? 'Agent redeployed' : `Redeploy failed: ${d.error}`, d.state === 'done' ? 'success' : 'error'); }}/>`}
-    ${result && html`<div class="btn-group" style=${{ justifyContent: 'flex-end', marginTop: 12 }}><button class="btn btn-primary" onClick=${() => { onDone?.(); onClose(); }}>Close</button></div>`}
+    ${deployId && closeRow(result, close, onDone)}
   <//>`;
 }
 
@@ -62,6 +86,7 @@ export function RemoveAgentDialog({ host, addToast, onClose, onDone }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
+  const close = useDeployClose(!!deployId && !result, onClose, addToast);
   const offline = !host.online;
   const go = async () => {
     setBusy(true); setError('');
@@ -73,7 +98,7 @@ export function RemoveAgentDialog({ host, addToast, onClose, onDone }) {
       onDone?.(); onClose();
     } catch (e) { setError(e.message); setBusy(false); }
   };
-  return html`<${Modal} title=${`Remove agent from ${name}`} onClose=${deployId && !result ? () => {} : onClose}>
+  return html`<${Modal} title=${`Remove agent from ${name}`} onClose=${close}>
     ${!deployId && html`<div>
       <div class="page-desc" style=${{ marginBottom: 12 }}>${offline
         ? 'The agent is offline. LabCTL uninstalls it over the network with the saved credential, or the one you enter below.'
@@ -91,7 +116,7 @@ export function RemoveAgentDialog({ host, addToast, onClose, onDone }) {
       </div>
     </div>`}
     ${deployId && html`<${DeployLog} deployId=${deployId} onDone=${d => { setResult(d); addToast(d.state === 'done' ? 'Agent uninstalled' : `Uninstall failed: ${d.error}`, d.state === 'done' ? 'success' : 'error'); }}/>`}
-    ${result && html`<div class="btn-group" style=${{ justifyContent: 'flex-end', marginTop: 12 }}><button class="btn btn-primary" onClick=${() => { onDone?.(); onClose(); }}>Close</button></div>`}
+    ${deployId && closeRow(result, close, onDone)}
   <//>`;
 }
 

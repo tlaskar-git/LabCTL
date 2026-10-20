@@ -51,12 +51,27 @@ module.exports = (app, ctx) => {
   // v1 stored the full OS text (for example debian-12 or windows-server-2025), the deploy engine wants linux, mac or windows.
   const osOfHost = v => (/windows/i.test(v || '') ? 'windows' : /darwin|mac/i.test(v || '') ? 'mac' : 'linux');
 
-  // What a redeploy or an offline uninstall knows about the host: the target saved by its last deploy.
+  // v1 hosts and agent reports carry the address in loose forms: "192.0.2.5:22", "ssh://host", "[2001:db8::1]:22",
+  // or a list. Returns a bare host name or IP address that the engine accepts, else ''.
+  const ADDR = /^(?!-)[A-Za-z0-9._:-]{1,253}$/;
+  function cleanAddress(v) {
+    let s = String(v || '').trim().split(/[\s,;]+/)[0].replace(/^[a-z][a-z0-9+.-]*:\/\//i, '').replace(/^[^@/]*@/, '').split('/')[0];
+    const v6 = /^\[([0-9A-Fa-f:.]+)\](?::\d+)?$/.exec(s);
+    if (v6) s = v6[1];
+    else if ((s.match(/:/g) || []).length === 1) s = s.split(':')[0]; // host:port, but not a bare IPv6 address
+    return ADDR.test(s) ? s : '';
+  }
+  // Only a name that looks like an address (has a dot, or is an IP) is used as a last resort.
+  const infoIp = h => { try { return JSON.parse(h.system_info || '{}')?.ip; } catch { return ''; } };
+  const addressOf = (h, dd) => cleanAddress(dd.address) || cleanAddress(h.ip) || cleanAddress(infoIp(h))
+    || (/\.|:/.test(h.hostname || '') ? cleanAddress(h.hostname) : '');
+
+  // What a redeploy or an offline uninstall knows about the host: the target saved by its last deploy, else what v1 stored.
   function hostDefaults(h, req) {
     const dd = ops.getData(db, h.id).deploy || {};
     const reset = req.body?.reset_host_key;
     if (reset && !isAdmin(req)) throw deploy.bad('admin role required to reset the host key', 403);
-    return { os: dd.os || osOfHost(h.os), address: dd.address || h.ip, port: dd.port, relay_host_id: dd.relay_host_id, no_service: dd.no_service,
+    return { os: dd.os || osOfHost(h.os), address: addressOf(h, dd), port: dd.port, relay_host_id: dd.relay_host_id, no_service: dd.no_service,
       host_key: reset ? '' : dd.host_key, auth: { user: dd.user, credential_id: dd.credential_id } };
   }
   const agentHost = req => {
@@ -66,13 +81,23 @@ module.exports = (app, ctx) => {
     return h;
   };
 
+  // What the Redeploy dialog prefills: the target the server would use. No secrets.
+  app.get('/api/hosts/:id/deploy-target', handle(async (req, res) => {
+    const h = agentHost(req);
+    const d = hostDefaults(h, req);
+    res.json({ os: d.os === 'darwin' ? 'mac' : d.os, address: d.address, port: d.port || null, has_credential: !!d.auth.credential_id });
+  }));
+
   // Reinstalls the agent on a host. Keeps the host id: the agent registers under the same id.
+  // The body can override address, os and port (a v1 host often has no usable address); the engine validates them.
   app.post('/api/hosts/:id/redeploy', handle(async (req, res) => {
     const h = agentHost(req);
     needAdminToSave(req);
+    const body = Object.fromEntries(Object.entries(req.body || {}).filter(([k, v]) => !(['address', 'os', 'port'].includes(k) && (v === '' || v == null))));
     let t;
-    try { t = deploy.target(req.body || {}, hostDefaults(h, req)); } catch (e) {
+    try { t = deploy.target(body, hostDefaults(h, req)); } catch (e) {
       if (e.expose && /password or private key/.test(e.message)) throw deploy.bad('No saved credential for this host. Enter a user and a password or key.');
+      if (e.expose && /^address/.test(e.message) && !body.address) throw deploy.bad('LabCTL does not know an address for this host. Enter its address.');
       throw e;
     }
     const d = deploy.start(t, { actor: actor(req), server: deploy.serverBase(req), hostId: h.id, name: h.hostname, save: !!req.body?.save_credential });

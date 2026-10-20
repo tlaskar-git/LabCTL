@@ -21,7 +21,9 @@ const bad = (message, status = 400) => Object.assign(new Error(message), { statu
 
 function createDeploy(ctx, cfg = {}) {
   const { db } = ctx;
-  const config = { waitMs: 120000, ...cfg }; // tests shorten waitMs
+  // Hard limit per phase: a step that never answers (a silent SSH or WinRM peer) still ends the deploy as failed. Tests shorten these.
+  const config = { waitMs: 120000, preflightMs: 120000, uploadMs: 300000, installMs: 1260000, ...cfg };
+  const PHASE = { preflight: ['Pre-flight', 'preflightMs'], upload: ['Upload', 'uploadMs'], install: ['Install', 'installMs'], wait_for_agent: ['Wait for agent', 'waitMs'] };
   const deploys = new Map();
 
   const agentFile = name => {
@@ -81,9 +83,10 @@ function createDeploy(ctx, cfg = {}) {
     return d;
   }
 
-  const emit = (d, event, data) => { for (const fn of d.subs) fn(event, data); };
+  const emit = (d, event, data) => { for (const fn of d.subs) { try { fn(event, data); } catch { /* a dead subscriber must not stop the run */ } } };
   const redact = (d, s) => ctx.audit.redact(d.secrets.reduce((acc, secret) => acc.split(secret).join('[redacted]'), String(s)));
   function log(d, text) {
+    if (d.finished_at) return; // a timed-out step that wakes up later: its secrets are gone, so its lines are dropped
     for (const raw of String(text).split(/\r?\n/)) {
       const line = redact(d, raw.replace(ANSI, '').split('\r').pop());
       if (!line.trim()) continue;
@@ -95,9 +98,11 @@ function createDeploy(ctx, cfg = {}) {
     }
   }
   function phase(d, p) {
-    if (d.phase === p) return;
+    if (d.phase === p || d.finished_at) return;
     d.phase = p;
+    d.arm?.();
     emit(d, 'phase', { phase: p });
+    ctx.logger.info(`[deploy] ${d.id} host ${d.name} phase ${p}`);
     ctx.audit(d.actor, `deploy.${p}`, d.host_id, { deploy_id: d.id, address: d.address, os: d.os });
   }
 
@@ -114,17 +119,25 @@ function createDeploy(ctx, cfg = {}) {
     phase: p => phase(d, p),
     file: agentFile });
   const flush = d => { if (d.partial) { log(d, d.partial); d.partial = ''; } };
+  const timedOut = p => `The ${PHASE[p][0]} step timed out after ${Math.round(config[PHASE[p][1]] / 1000)} s. The target stopped answering.`;
+  // Rejects after ms. stop() clears the timer.
+  const deadline = (ms, message) => {
+    let timer;
+    const p = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(message)), ms); });
+    return { p, stop: () => clearTimeout(timer) };
+  };
 
   // Pre-flight only: checks and nothing else on the target.
   async function preflight(t, server, actor) {
     const d = create(t, { actor, mode: 'preflight' });
+    const limit = deadline(config.preflightMs, timedOut('preflight'));
     try {
-      const r = await driver(t).inspect(t, helper(d, server));
+      const r = await Promise.race([driver(t).inspect(t, helper(d, server)), limit.p]);
       ctx.audit(actor, 'deploy.preflight', null, { address: t.address, os: t.os, ok: r.checks.every(c => c.ok) });
       return { checks: r.checks, ok: r.checks.length > 0 && r.checks.every(c => c.ok), transport: r.transport || null, port: r.port || t.port || null, host_key: r.hostKey || null };
     } catch (e) {
       return { checks: [{ name: 'Pre-flight', ok: false, detail: redact(d, e.message) }], ok: false, transport: null, port: null, host_key: null };
-    } finally { deploys.delete(d.id); }
+    } finally { limit.stop(); deploys.delete(d.id); }
   }
 
   // Resolves with the host row when an agent registers with this token, else null after ms.
@@ -158,7 +171,13 @@ function createDeploy(ctx, cfg = {}) {
   async function execute(d, t, server, { save, hostId }) {
     const h = helper(d, server);
     let token = null;
-    try {
+    // Watchdog: re-armed on every phase change, it fails the run when the current phase overruns its limit.
+    let timer;
+    const stalled = new Promise((_, reject) => {
+      d.arm = () => { clearTimeout(timer); const p = d.phase; timer = setTimeout(() => reject(new Error(timedOut(p))), config[PHASE[p][1]] + (p === 'wait_for_agent' ? 5000 : 0)); };
+    });
+    d.arm();
+    const run = async () => {
       const install = d.mode !== 'uninstall';
       if (install) {
         log(d, `Pre-flight checks for ${t.address} (${t.os})`);
@@ -195,30 +214,50 @@ function createDeploy(ctx, cfg = {}) {
         db.prepare("UPDATE hosts SET status = 'gone', updated_at = ? WHERE id = ? AND status != 'online'").run(ops.now(), hostId);
         ctx.events.emit('host', db.prepare('SELECT * FROM hosts WHERE id = ?').get(hostId));
       }
+    };
+    try {
+      await Promise.race([run(), stalled]);
       d.state = 'done';
       log(d, d.mode === 'uninstall' ? 'The agent was removed.' : 'Done.');
     } catch (err) {
       flush(d);
       d.state = 'failed';
-      d.error = redact(d, err.message);
+      d.error = redact(d, err?.message || String(err));
       log(d, `FAILED: ${d.error}`);
       if (token) {
-        ctx.tokens.revoke(token.id);
-        ctx.agents.disconnectToken(token.id);
-        log(d, 'The dedicated deploy token was revoked.');
+        try {
+          ctx.tokens.revoke(token.id);
+          ctx.agents.disconnectToken(token.id);
+          log(d, 'The dedicated deploy token was revoked.');
+        } catch (e) { log(d, `Could not revoke the deploy token: ${e.message}`); }
       }
-    }
+    } finally { clearTimeout(timer); d.arm = null; }
+    finish(d);
+  }
+
+  // Ends a run exactly once: stamps it, logs it, tells every listener. Never throws.
+  function finish(d) {
+    if (d.finished_at) return;
     d.finished_at = new Date().toISOString();
-    ctx.audit(d.actor, d.state === 'done' ? 'deploy.done' : 'deploy.failed', d.host_id, { deploy_id: d.id, address: d.address, os: d.os, mode: d.mode, error: d.error });
-    emit(d, 'done', { state: d.state, error: d.error, host_id: d.host_id });
     d.secrets = []; // nothing secret stays in memory after the run
+    const line = `[deploy] ${d.id} host ${d.name} phase ${d.phase} ${d.state === 'done' ? 'done' : `failed: ${d.error}`}`;
+    if (d.state === 'done') ctx.logger.info(line); else ctx.logger.warn(line);
+    try { ctx.audit(d.actor, d.state === 'done' ? 'deploy.done' : 'deploy.failed', d.host_id, { deploy_id: d.id, address: d.address, os: d.os, mode: d.mode, error: d.error }); } catch { /* audit is best effort */ }
+    emit(d, 'done', { state: d.state, error: d.error, host_id: d.host_id });
   }
 
   // Starts a run and returns the deploy object at once. The run goes on in the background.
   function start(t, { actor, server, name, hostId = null, mode = 'install', save = false }) {
     const d = create(t, { actor, mode, hostId, name });
     ctx.audit(actor, 'deploy.start', hostId, { deploy_id: d.id, address: t.address, os: t.os, mode, relay_host_id: t.relay_host_id, save_credential: !!save });
-    setImmediate(() => execute(d, t, server, { save, hostId }));
+    ctx.logger.info(`[deploy] ${d.id} host ${d.name} phase ${d.phase} (${mode} on ${t.address}, ${t.os})`);
+    setImmediate(() => execute(d, t, server, { save, hostId }).catch(err => {
+      // Only reached when the failure path itself throws: the run still ends as failed with the message.
+      if (d.finished_at) return ctx.logger.error(`[deploy] ${d.id} ${err.message}`);
+      d.state = 'failed';
+      d.error = d.error || redact(d, err?.message || String(err));
+      finish(d);
+    }));
     return d;
   }
 
@@ -229,12 +268,14 @@ function createDeploy(ctx, cfg = {}) {
   function stream(d, req, res) {
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
     res.write('retry: 2000\n\n');
-    const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    const send = (event, data) => { if (!res.writableEnded) res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); };
+    // The snapshot comes first, so a client knows at once that the stream works and where the run is.
+    send('snapshot', { state: d.state, phase: d.phase, error: d.error, host_id: d.host_id, started_at: d.started_at });
     send('phase', { phase: d.phase });
     for (const e of d.lines) send('log', e);
-    if (d.state !== 'running') { send('done', { state: d.state, error: d.error, host_id: d.host_id }); return res.end(); }
+    if (d.finished_at) { send('done', { state: d.state, error: d.error, host_id: d.host_id }); return res.end(); }
     const fn = (event, data) => { send(event, data); if (event === 'done') res.end(); };
-    const hb = setInterval(() => res.write(': hb\n\n'), ctx.sseHeartbeatMs || 15000);
+    const hb = setInterval(() => { if (!res.writableEnded) res.write(': hb\n\n'); }, ctx.sseHeartbeatMs || 15000);
     d.subs.add(fn);
     req.on('close', () => { clearInterval(hb); d.subs.delete(fn); });
   }
