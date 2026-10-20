@@ -1,8 +1,8 @@
 // Hosts: filters, tags and groups, removal modes, blocklist, bulk confirm, agentless ssh hosts (local ssh2 test server).
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { Server, utils } = require('ssh2');
-const { startApp, login, api, wsOpen, waitFor } = require('./helpers');
+const { Server } = require('ssh2');
+const { startApp, login, api, wsOpen, waitFor, sshHostKey } = require('./helpers');
 const ops = require('../src/hostops');
 
 const PW = 'pw-test-only'; // password of the local test ssh server, a throwaway value
@@ -155,7 +155,7 @@ test('bulk remove needs the text REMOVE n HOSTS', async (t) => {
 // ── ssh hosts against a local ssh2 server ─────────────────────────────────
 function startSshServer() {
   const seen = { closedChannels: 0, commands: [] };
-  const hostKey = utils.generateKeyPairSync('ed25519').private;
+  const hostKey = sshHostKey();
   const server = new Server({ hostKeys: [hostKey] }, client => {
     client.on('authentication', c => (c.method === 'password' && c.username === 'tester' && c.password === PW ? c.accept() : c.reject(['password'])));
     client.on('error', () => {});

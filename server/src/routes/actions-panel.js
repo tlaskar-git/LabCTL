@@ -1,9 +1,6 @@
 // Host actions panel (Phase 8): which templates fit one host, grouped for the UI, and the latest result log per template.
-// Also adds, in front of POST /api/templates/:id/run (routes/templates.js loads later, files load in sorted order):
-//  - the typed confirmation for any run that touches a domain controller, which guards.js does not know about
-//  - one audit row per host for every confirmed guarded run (actor, template, host, confirm: true, no secrets)
-const { parseJson } = require('../db');
-const { needsConfirm, confirmWord } = require('../guards');
+// The typed confirmation and its audit row (domain controllers included) live in guards.js.
+const { rolesOf } = require('../guards');
 
 const GROUPS = ['Patch', 'Security', 'Network', 'Cleanup', 'Health', 'Danger'];
 const BY_ID = {
@@ -19,19 +16,6 @@ const BY_ID = {
 const groupOf = t => BY_ID[t.id] || (t.admin || /(^|_)(reboot|remove)(_|$)/.test(t.id) ? 'Danger' : /cleanup|killer/.test(t.id) ? 'Cleanup'
   : /update|upgrade/.test(t.id) ? 'Patch' : /restart/.test(t.id) ? 'Network' : 'Health');
 const DC_ONLY = new Set(['win_dc_health', 'win_dns_check', 'win_dns_restart']);
-
-// Role comes from the kind, the last inventory and, for a domain controller, the agent flag or a "domain-controller" tag.
-function rolesOf(db, host) {
-  const inv = parseJson(host.inventory, null) || {};
-  const tags = db.prepare('SELECT t.name FROM tags t JOIN host_tags ht ON ht.tag_id = t.id WHERE ht.host_id = ?').all(host.id).map(t => t.name.toLowerCase());
-  const win = inv.windows || {};
-  return {
-    vps: host.kind === 'vps',
-    proxmox: host.kind === 'proxmox' || !!inv.proxmox || tags.includes('proxmox'),
-    domain_controller: host.os === 'windows' && (win.domain_controller === true || [4, 5].includes(Number(win.domain_role)) || tags.includes('domain-controller')),
-    runner: host.kind === 'runner' || (Array.isArray(inv.runners) && inv.runners.length > 0)
-  };
-}
 
 function applicable(tpl, host, roles) {
   if (host.os && !tpl.os.includes(host.os)) return false;
@@ -74,24 +58,5 @@ module.exports = (app, ctx) => {
         log: String(ctx.joblog.read(r.id) || '').slice(-200000) });
     }
     res.json(out);
-  });
-
-  app.post('/api/templates/:id/run', (req, res, next) => {
-    const tpl = ctx.templates.catalogue.byId.get(req.params.id);
-    if (!tpl) return next();
-    const hosts = ctx.templates.resolveHosts(req.body || {}).hosts.filter(h => !h.os || tpl.os.includes(h.os));
-    const dc = hosts.filter(h => rolesOf(db, h).domain_controller);
-    const guarded = needsConfirm(tpl, req.body) || dc.length > 0;
-    if (!guarded) return next();
-    res.on('finish', () => {
-      if (res.statusCode !== 200) return;
-      const actor = req.user?.username;
-      for (const h of hosts) {
-        ctx.audit(actor, 'template.guard_confirmed', h.id, { template: tpl.id, confirm: true,
-          reason: needsConfirm(tpl, req.body) ? (tpl.guard ? 'template' : 'force') : 'domain_controller' });
-      }
-    });
-    if (needsConfirm(tpl, req.body)) return next(); // guards.js asks for it
-    return ctx.requireConfirm(() => confirmWord(tpl, hosts))(req, res, next);
   });
 };

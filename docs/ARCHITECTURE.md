@@ -480,3 +480,9 @@ Taken in the feature phases (1 to 12):
     yet, so the first CI run decides.
 32. Template secrets are held in memory by `ctx.templateSecrets` from job creation to dispatch, so the database holds
     nothing sensitive.
+
+## Lifecycle and guards (integration notes)
+
+- `ctx.onClose(fn)` registers a stop function. `app.close()` awaits all of them, so timers and in-flight policy runs end before the database closes.
+- The domain controller rule lives in `server/src/guards.js`. Any run on a host detected as a domain controller needs the typed confirmation. Detection uses inventory `windows.domain_controller`, `windows.domain_role` 4 or 5, or the host tag `domain-controller`.
+- Proxmox hosts are detected from kind, inventory `proxmox` or the tag `proxmox`.

@@ -405,6 +405,32 @@ test('SMTP: plain relay on a custom port with no auth, dot-stuffing and CRLF', a
   assert.ok(!buildMail({ from: 'a@example.test', to: ['b@example.test'], subject: 'x\r\nBcc: evil@example.test', text: 't' }).includes('\r\nBcc:'));
 });
 
+test('health report: its own title, no alert wording, and multipart text plus HTML over SMTP', async () => {
+  const { render } = require('../src/alerting/notify');
+  const healthReport = require('../src/health-report');
+  const s = await startApp();
+  try {
+    let sent = null;
+    s.ctx.alerting.notifier.dispatch = async p => { sent = p; return [{ channel_id: 'c1', ok: true }]; };
+    assert.ok((await healthReport.send(s.ctx)).ok);
+    const msg = render(sent);
+    assert.match(msg.title, /^LabCTL daily health report/);
+    assert.doesNotMatch(`${msg.title}\n${msg.text}`, /FIRING|RESOLVED|Since:/);
+    const srv = await fakeSmtp();
+    try {
+      await smtpSend(smtpCfg(srv.port), { subject: msg.title, text: msg.text, html: sent.html });
+      const d = srv.mails[0].data;
+      const boundary = d.match(/Content-Type: multipart\/alternative; boundary="([^"]+)"/)[1];
+      const parts = d.split(`--${boundary}`);
+      assert.match(parts[1], /Content-Type: text\/plain; charset=utf-8\n[^]*FLEET/);
+      assert.match(parts[2], /Content-Type: text\/html; charset=utf-8\nContent-Transfer-Encoding: base64/);
+      const html = Buffer.from(parts[2].split('\n\n')[1].replace(/\n/g, ''), 'base64').toString();
+      assert.match(html, /^<h2>LabCTL daily health report/);
+      assert.strictEqual(parts[3].trim(), '--');
+    } finally { await srv.close(); }
+  } finally { await s.stop(); }
+});
+
 test('SMTP: AUTH LOGIN and AUTH PLAIN, bad credentials and missing STARTTLS give exact errors', async () => {
   const login = await fakeSmtp({ auth: 'LOGIN' });
   const plain = await fakeSmtp({ auth: 'PLAIN LOGIN' });

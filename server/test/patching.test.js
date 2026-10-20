@@ -8,7 +8,9 @@ const { startApp, login, api, wsOpen, waitFor } = require('./helpers');
 async function setup(t, hostIds = ['h0', 'h1', 'h2']) {
   const s = await startApp();
   s.sockets = [];
+  s.reconnects = []; // a reboot reconnects later: teardown waits for it so no agent is mid-register when the db closes
   t.after(async () => {
+    await Promise.allSettled(s.reconnects);
     await Promise.all(s.sockets.map(w => new Promise(r => { if (w.readyState === 3) return r(); w.on('close', r); w.close(); })));
     await new Promise(r => setTimeout(r, 50));
     await s.stop();
@@ -30,7 +32,9 @@ async function setup(t, hostIds = ['h0', 'h1', 'h2']) {
       ws.send(JSON.stringify({ type: 'job_output', job_id: m.job_id, seq: 1, stream: 'stdout', chunk: line }));
       ws.send(JSON.stringify({ type: 'job_complete', job_id: m.job_id, status: fail ? 'failed' : 'success', exit_code: fail ? 1 : 0, duration_ms: 5 }));
       // A reboot job ends, then the agent drops and comes back.
-      if (tpl === 'vps_scheduled_reboot') setTimeout(() => { ws.close(); setTimeout(() => connect(id), 150); }, 30);
+      if (tpl === 'vps_scheduled_reboot') {
+        s.reconnects.push(new Promise(r => setTimeout(() => { ws.close(); setTimeout(() => r(connect(id)), 150); }, 30)));
+      }
     });
     await waitFor(() => s.ctx.agents.isOnline(id));
     return ws;
@@ -233,6 +237,18 @@ test('the scheduler hook starts a due policy, records a missed one, and skips a 
   const skipped = s.ctx.patching.getRun(r.run.id);
   assert.equal(skipped.status, 'skipped');
   assert.match(skipped.error, /previous ring policy failed/);
+});
+
+test('server shutdown ends a waiting run as failed before the database closes', async (t) => {
+  const { s, policy } = await setup(t, ['h0']);
+  s.ctx.maintenance = { isInMaintenance: () => true };
+  const p = await policy({ rings: [0], maintenance: { mode: 'wait', wait_max_minutes: 60 } });
+  const r = s.ctx.patching.start(s.ctx.patching.get(p.id), { actor: 'test' });
+  await new Promise(res => setTimeout(res, 100)); // the run is now in its maintenance wait
+  await s.ctx.patching.stop();
+  const run = s.ctx.patching.getRun(r.run.id);
+  assert.equal(run.status, 'failed');
+  assert.equal(run.error, 'Interrupted by a server shutdown');
 });
 
 test('a policy cannot run twice at once', async (t) => {

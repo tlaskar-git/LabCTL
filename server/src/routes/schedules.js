@@ -9,6 +9,7 @@ module.exports = (app, ctx) => {
   const builtins = createBuiltins(ctx);
   ctx.builtins = builtins;
   builtins.startTimer();
+  ctx.onClose(() => builtins.stopTimer());
   const reply = (res, r) => (r.view ? res.json(r.result ? { ...r.view, result: r.result } : r.view) : res.status(r.status).json({ error: r.error }));
   app.get('/api/builtin-schedules', (req, res) => res.json(builtins.list()));
   app.post('/api/builtin-schedules/:key/enable', (req, res) => {

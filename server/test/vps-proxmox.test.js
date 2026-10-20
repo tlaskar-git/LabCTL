@@ -4,8 +4,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('path');
 const { pathToFileURL } = require('url');
-const { Server, utils } = require('ssh2');
-const { startApp, login, api, waitFor } = require('./helpers');
+const { Server } = require('ssh2');
+const { startApp, login, api, waitFor, sshHostKey } = require('./helpers');
 
 const JS = path.join(__dirname, '../public/js/components');
 const load = f => import(pathToFileURL(path.join(JS, f)).href);
@@ -185,6 +185,13 @@ test('guard: a domain controller needs the typed confirmation even for a templat
   assert.equal(s.ctx.audit.query({ action: 'template.guard_confirmed', host_id: 'dc' }).rows[0].detail.reason, 'domain_controller');
   assert.equal((await op('POST', '/api/templates/win_service_health/run', { host_ids: ['win'] })).status, 200); // not a DC: no confirm
   assert.equal(s.ctx.audit.query({ action: 'template.guard_confirmed', host_id: 'win' }).total, 0);
+  // The rule lives in guards.js only.
+  const { guardReason } = require('../src/guards');
+  const row = id => s.ctx.db.prepare('SELECT * FROM hosts WHERE id = ?').get(id);
+  const tpl = s.ctx.templates.catalogue.byId.get('win_service_health');
+  assert.equal(guardReason(s.ctx.db, tpl, [row('win'), row('dc')], {}), 'domain_controller');
+  assert.equal(guardReason(s.ctx.db, tpl, [row('win')], {}), null);
+  assert.equal(guardReason(s.ctx.db, tpl, [row('win')], { force: true }), 'force');
 });
 
 test('audit: a guarded run with a secret stores no secret anywhere', async t => {
@@ -221,11 +228,7 @@ function startSshServer() {
       });
     })));
   };
-  // ssh2 sometimes generates an ed25519 key that it then refuses to parse (about 1 in 600), so retry.
-  let server;
-  for (let i = 0; !server; i++) {
-    try { server = new Server({ hostKeys: [utils.generateKeyPairSync('ed25519').private] }, handler); } catch (err) { if (i > 5) throw err; }
-  }
+  const server = new Server({ hostKeys: [sshHostKey()] }, handler);
   return new Promise(resolve => server.listen(0, '127.0.0.1', () => resolve({ server, port: server.address().port, seen })));
 }
 

@@ -16,7 +16,7 @@ const SERVICE_TEMPLATE = { linux: ['vps_post_reboot_check', 'SERVICES'], windows
 const SNAPSHOT_TEMPLATE = 'pve_snapshot';
 const SERVICE_RE = /^[A-Za-z0-9_.@:-]{1,100}$/;
 const now = () => new Date().toISOString();
-const sleep = ms => new Promise(r => setTimeout(r, ms));
+const { setTimeout: delay } = require('timers/promises');
 const isObj = v => v && typeof v === 'object' && !Array.isArray(v);
 
 const DEFAULTS = {
@@ -61,6 +61,9 @@ function createPatching(ctx) {
   db.prepare("UPDATE patch_runs SET status = 'failed', error = 'Interrupted by a server restart', ended_at = ? WHERE status = 'running'").run(now());
 
   const active = new Map(); // policy id -> run id
+  const inflight = new Set(); // done promises of running runs, awaited by stop()
+  const shutdown = new AbortController(); // stop() aborts waits so a run ends before the db closes
+  const sleep = ms => delay(ms, undefined, { signal: shutdown.signal });
   const catalogue = () => ctx.templates?.catalogue;
   let timer = null;
 
@@ -220,7 +223,8 @@ function createPatching(ctx) {
         run.status = 'failed'; run.error = err.message; run.ended_at = now();
         self.saveRun(run);
         ctx.logger.error('[patching]', err.message);
-      }).finally(() => active.delete(policy.id));
+      }).finally(() => { active.delete(policy.id); inflight.delete(done); });
+      inflight.add(done);
       return { run: self.getRun(run.id), done };
     },
 
@@ -256,6 +260,7 @@ function createPatching(ctx) {
       for (const [i, ring] of plan.entries()) {
         ring.status = 'running'; run.persist();
         await self.runPool(ring.hosts, rows[i], (rec, host) => self.patchHost(run, policy, host, rec));
+        shutdown.signal.throwIfAborted();
         const failed = ring.hosts.filter(h => h.status === 'failed').length;
         ring.status = failed ? 'failed' : 'completed';
         run.persist();
@@ -288,7 +293,7 @@ function createPatching(ctx) {
       const limit = Math.max(1, Number(ctx.settings.get('patch_concurrency')) || 3);
       let next = 0;
       const worker = async () => {
-        while (next < records.length) {
+        while (next < records.length && !shutdown.signal.aborted) {
           const i = next++;
           try { await fn(records[i], hosts[i]); } catch (err) { records[i].status = 'failed'; records[i].reason = err.message; }
         }
@@ -345,13 +350,16 @@ function createPatching(ctx) {
         const closed = j => j && !jobs.OPEN_STATES.includes(j.status);
         let t1; let t2;
         const finish = (j, status) => {
-          clearTimeout(t1); clearTimeout(t2); events.off('job', on);
+          clearTimeout(t1); clearTimeout(t2); events.off('job', on); shutdown.signal.removeEventListener('abort', onAbort);
           resolve({ job_id: id, status: status || j.status, exit_code: j ? j.exit_code : null });
         };
         const on = j => { if (j && j.id === id && closed(j)) finish(j); };
+        const onAbort = () => finish(jobs.get(id), 'cancelled');
         events.on('job', on);
+        shutdown.signal.addEventListener('abort', onAbort);
         const first = jobs.get(id);
         if (closed(first)) return finish(first);
+        if (shutdown.signal.aborted) return onAbort();
         t1 = setTimeout(() => { jobs.cancel(id); finish(jobs.get(id), 'timeout'); }, timeoutMs);
         t2 = setTimeout(() => { if (jobs.get(id)?.status === 'pending') { jobs.cancel(id); finish(jobs.get(id), 'not_accepted'); } }, self.pendingMs);
       });
@@ -502,7 +510,13 @@ function createPatching(ctx) {
       }, 60000);
       timer.unref();
     },
-    stopTimer() { clearInterval(timer); timer = null; }
+    stopTimer() { clearInterval(timer); timer = null; },
+    // Server shutdown: no new ticks, every wait ends, running runs are stored as failed. Resolves when they have.
+    stop() {
+      self.stopTimer();
+      shutdown.abort(new Error('Interrupted by a server shutdown'));
+      return Promise.allSettled([...inflight]);
+    }
   };
   return self;
 }

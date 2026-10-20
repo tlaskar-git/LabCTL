@@ -8,6 +8,7 @@ module.exports = (app, ctx) => {
   const patching = createPatching(ctx);
   ctx.patching = patching;
   patching.startTimer();
+  ctx.onClose(() => patching.stop());
   const actor = req => req.user?.username;
   const needConfirm = (res, policy) => res.status(400).json({ error: 'Typed confirmation required', confirm_required: true, confirm_word: policy.name });
   const found = (res, p) => (p ? true : !res.status(404).json({ error: 'Policy not found' }));

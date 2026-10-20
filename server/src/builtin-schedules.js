@@ -218,7 +218,8 @@ function createBuiltins(ctx) {
         self.tick().catch(err => ctx.logger.error('[builtin-schedules]', err.message));
       }, 60000);
       timer.unref();
-    }
+    },
+    stopTimer() { clearInterval(timer); timer = null; }
   };
 
   // The certificate template prints "valid until <date>" per domain. The soonest one becomes the cert_expiry_days fact

@@ -7,6 +7,7 @@ import { HostFilters, EMPTY_FILTERS } from '../components/host-filters.js';
 import { RemoveDialog } from '../components/host-remove-dialog.js';
 import { HostSettings } from '../components/host-settings.js';
 import { AddSshHost } from '../components/host-add-ssh.js';
+import { DeployActions } from '../components/deploy-actions.js';
 import { filtersFromQuery, fleetHostIds, FLEET_FILTERS } from '../components/host-query.js';
 
 const seen = iso => (iso ? iso.slice(0, 19).replace('T', ' ') : '—');
@@ -117,6 +118,7 @@ export default function HostsPage({ hosts, addToast, currentUser, query }) {
     <td class="mono">${seen(h.last_seen)}</td>
     <td onClick=${e => e.stopPropagation()} style=${{ whiteSpace: 'nowrap' }}>
       ${canEdit && html`<button class="btn btn-sm" title="Host settings" aria-label="Host settings" onClick=${() => setSettingsHost(h)}><${Icons.Settings}/></button>`}
+      <${DeployActions} host=${h} isAdmin=${isAdmin} addToast=${addToast} onDone=${refresh}/>
       ${isAdmin && html` <button class="btn btn-sm btn-danger" title="Remove host" aria-label="Remove host" onClick=${() => setRemoving([h])}><${Icons.Trash}/> Remove</button>`}
     </td>
   </tr>`;
@@ -130,7 +132,8 @@ export default function HostsPage({ hosts, addToast, currentUser, query }) {
         </div>
         <div class="btn-group">
           ${isAdmin && html`<a class="btn" style=${{ textDecoration: 'none' }} href="#/blocklist"><${Icons.Stop}/> Blocked hosts</a>`}
-          ${canEdit && html`<button class="btn btn-primary" onClick=${() => setAddingSsh(true)}><${Icons.Server}/> Add SSH host</button>`}
+          ${canEdit && html`<a class="btn btn-primary" style=${{ textDecoration: 'none' }} href="#/add-host"><${Icons.Server}/> Add host</a>`}
+          ${canEdit && html`<button class="btn" onClick=${() => setAddingSsh(true)}><${Icons.Terminal}/> Add SSH host</button>`}
         </div>
       </div>
 

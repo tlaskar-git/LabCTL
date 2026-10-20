@@ -95,6 +95,8 @@ function validate(kind, c) {
 // ---- message ----------------------------------------------------------------------------------------------------
 
 function render(p) {
+  // A report (the daily health report) is not an alert: its own subject, no firing or recovery wording.
+  if (p.report) return { title: p.subject || p.rule, text: [p.message, p.link ? `Open: ${p.link}` : ''].filter(Boolean).join('\n') };
   const title = `[${p.recovery ? 'RESOLVED' : p.test ? 'TEST' : 'FIRING'}] ${String(p.severity || 'info').toUpperCase()} ${p.rule}${p.host ? ` on ${p.host}` : ''}`;
   const lines = [p.message, p.recovery ? `Resolved: ${p.resolved_at}` : p.since ? `Since: ${p.since}` : '', p.link ? `Open: ${p.link}` : ''].filter(Boolean);
   return { title, text: lines.join('\n') };
@@ -139,19 +141,29 @@ function makeReader(stream) {
 const header = s => String(s).replace(/[\r\n]+/g, ' ');
 const b64 = s => Buffer.from(s, 'utf8').toString('base64');
 
-function buildMail({ from, to, subject, text }) {
+const b64Lines = s => (b64(s).match(/.{1,76}/g) || []).join('\r\n');
+
+// Plain text, or multipart/alternative (text then HTML) when html is given. HTML is always base64 (no line limit issue).
+function buildMail({ from, to, subject, text, html }) {
   const ascii = /^[\x00-\x7F]*$/.test(text);
-  const body = ascii ? text.replace(/\r?\n/g, '\r\n') : (b64(text).match(/.{1,76}/g) || []).join('\r\n');
+  const textHead = ['Content-Type: text/plain; charset=utf-8', `Content-Transfer-Encoding: ${ascii ? '7bit' : 'base64'}`];
+  const textBody = ascii ? text.replace(/\r?\n/g, '\r\n') : b64Lines(text);
   const subj = /^[\x20-\x7E]*$/.test(subject) ? header(subject) : `=?UTF-8?B?${b64(header(subject))}?=`;
   const head = [`From: ${from}`, `To: ${to.join(', ')}`, `Subject: ${subj}`, `Date: ${new Date().toUTCString()}`,
-    `Message-ID: <${randomUUID()}@labctl.invalid>`, 'MIME-Version: 1.0', 'Content-Type: text/plain; charset=utf-8',
-    `Content-Transfer-Encoding: ${ascii ? '7bit' : 'base64'}`].join('\r\n');
+    `Message-ID: <${randomUUID()}@labctl.invalid>`, 'MIME-Version: 1.0'];
+  let body = textBody;
+  if (html) {
+    const boundary = `labctl-${randomUUID()}`;
+    head.push(`Content-Type: multipart/alternative; boundary="${boundary}"`);
+    body = [`--${boundary}`, ...textHead, '', textBody, `--${boundary}`, 'Content-Type: text/html; charset=utf-8',
+      'Content-Transfer-Encoding: base64', '', b64Lines(html), `--${boundary}--`].join('\r\n');
+  } else head.push(...textHead);
   const stuffed = body.split('\r\n').map(l => (l.startsWith('.') ? `.${l}` : l)).join('\r\n');
-  return `${head}\r\n\r\n${stuffed}\r\n.\r\n`;
+  return `${head.join('\r\n')}\r\n\r\n${stuffed}\r\n.\r\n`;
 }
 
 // EHLO, optional STARTTLS, AUTH PLAIN or LOGIN when a user is set, MAIL FROM, RCPT TO, DATA, QUIT.
-function smtpSend(cfg, { subject, text }, { timeoutMs = 15000 } = {}) {
+function smtpSend(cfg, { subject, text, html }, { timeoutMs = 15000 } = {}) {
   return new Promise((resolve, reject) => {
     let sock = null;
     let settled = false;
@@ -201,7 +213,7 @@ function smtpSend(cfg, { subject, text }, { timeoutMs = 15000 } = {}) {
       await cmd(`MAIL FROM:<${cfg.from}>`, [250]);
       for (const to of cfg.to) await cmd(`RCPT TO:<${to}>`, [250, 251]);
       await cmd('DATA', [354]);
-      sock.write(buildMail({ from: cfg.from, to: cfg.to, subject, text }));
+      sock.write(buildMail({ from: cfg.from, to: cfg.to, subject, text, html }));
       expect(await reader.read(), [250]);
       sock.write('QUIT\r\n');
     })().then(() => finish(), finish);
@@ -251,7 +263,7 @@ function createNotifier(ctx) {
 
     async attempt(kind, config, payload) {
       const msg = render(payload);
-      if (kind === 'smtp') await smtpSend(config, { subject: msg.title, text: msg.text }, { timeoutMs: self.timeoutMs });
+      if (kind === 'smtp') await smtpSend(config, { subject: msg.title, text: msg.text, html: payload.report ? payload.html : undefined }, { timeoutMs: self.timeoutMs });
       else if (kind === 'webhook') await webhookSend(config, payload, { timeoutMs: self.timeoutMs });
       else await telegramSend(config, msg, { base: self.apiBase(), timeoutMs: self.timeoutMs });
     },
@@ -282,7 +294,7 @@ function createNotifier(ctx) {
           return { ok: true };
         } catch (err) { last = scrub(err.message || String(err), row.kind, config); }
       }
-      self.fail(row.id, last, `${payload.recovery ? 'recovery' : 'alert'}: ${payload.rule}`);
+      self.fail(row.id, last, `${payload.report ? 'report' : payload.recovery ? 'recovery' : 'alert'}: ${payload.rule}`);
       return { ok: false, error: last };
     },
 

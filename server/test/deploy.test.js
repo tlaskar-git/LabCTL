@@ -7,7 +7,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const { Server, utils } = require('ssh2');
-const { startApp, login, api, wsOpen, waitFor } = require('./helpers');
+const { startApp, login, api, wsOpen, waitFor, sshHostKey } = require('./helpers');
 const unix = require('../src/deploy/unix');
 const windows = require('../src/deploy/windows');
 const winrm = require('../src/deploy/winrm');
@@ -28,7 +28,7 @@ const kvText = kv => Object.entries(kv).map(([k, v]) => `${k}=${v}`).join('\n') 
 function fakeLinux(appPort, o = {}) {
   const opt = { password: PW, sudoPw: SUDO, uid: 1000, hostId: 'h-deploy-1', failInstall: false, probe: {}, ...o };
   const seen = { commands: [], stdin: [], files: new Map(), removed: [], agents: [], tokens: [] };
-  const hostKey = utils.generateKeyPairSync('ed25519').private;
+  const hostKey = sshHostKey();
 
   async function agentUp(token) {
     const ws = await wsOpen(appPort, token);

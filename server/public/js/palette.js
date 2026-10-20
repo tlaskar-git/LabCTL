@@ -66,7 +66,7 @@ export function Palette() {
     const groupItem = g => ({ kind: 'group', id: `g-${g.id}`, label: g.name, hint: 'group', group: g });
     if (s.step === 'search') {
       const all = [
-        ...pages.filter(p => p.nav !== false && p.route !== false && !p.modal && p.roles.includes(role)).map(p => ({ kind: 'page', id: `p-${p.id}`, label: p.title, hint: p.group || 'Page', page: p })),
+        ...pages.filter(p => (p.nav !== false || p.modal) && p.route !== false && p.roles.includes(role)).map(p => ({ kind: 'page', id: `p-${p.id}`, label: p.title, hint: p.group || 'Page', page: p })),
         ...(canRun ? data.templates.map(act) : []),
         ...hosts.map(hostItem), ...data.groups.map(groupItem)];
       return rank(all, s.query, text);

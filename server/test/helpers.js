@@ -8,6 +8,11 @@ const { generateKey } = require('../src/crypto');
 const KEY = generateKey();
 const tempDir = () => fs.mkdtempSync(path.join(os.tmpdir(), 'labctl-test-'));
 
+// Host key for local ssh2 test servers. ssh2's own ed25519 generator sometimes emits a key it cannot parse
+// (about 1 in 300), so use an ECDSA key from node:crypto in PEM, which ssh2 always reads.
+const sshHostKey = () => require('crypto').generateKeyPairSync('ec', { namedCurve: 'prime256v1',
+  privateKeyEncoding: { type: 'sec1', format: 'pem' }, publicKeyEncoding: { type: 'spki', format: 'pem' } }).privateKey;
+
 async function startApp({ dataDir = tempDir(), listen = true } = {}) {
   const { createApp } = require('../src/app');
   const inst = createApp({ dataDir, masterKey: KEY, quiet: true });
@@ -56,4 +61,4 @@ const waitFor = async (fn, ms = 3000) => {
   throw new Error('waitFor timed out');
 };
 
-module.exports = { KEY, tempDir, startApp, login, api, wsStatus, wsOpen, nextMessage, waitFor };
+module.exports = { KEY, tempDir, sshHostKey, startApp, login, api, wsStatus, wsOpen, nextMessage, waitFor };

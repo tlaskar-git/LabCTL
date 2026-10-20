@@ -372,6 +372,7 @@ function ensure(ctx) {
     ctx.alerting = createAlerting(ctx);
     ctx.maintenance = ctx.alerting.maintenance;
     ctx.alerting.start();
+    ctx.onClose?.(() => ctx.alerting.stop());
   }
   return ctx.alerting;
 }

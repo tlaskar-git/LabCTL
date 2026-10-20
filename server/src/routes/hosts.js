@@ -20,8 +20,7 @@ module.exports = (app, ctx) => {
   // ssh hosts have no socket: count them online by their polled status, and stop polling with the agents.
   const isOnline = agents.isOnline;
   agents.isOnline = id => isOnline(id) || ssh.sshOnline(id);
-  const closeAgents = agents.close;
-  agents.close = () => { ssh.stop(); closeAgents(); };
+  ctx.onClose(() => ssh.stop());
   // An operator-set kind (vps, proxmox, runner) survives the agent re-registering as kind "agent".
   ctx.events.on('host', row => {
     const pref = row && ops.getData(db, row.id).kind_pref;

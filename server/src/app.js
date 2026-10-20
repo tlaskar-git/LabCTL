@@ -42,6 +42,7 @@ function createApp({ dataDir = process.env.DATA_DIR || path.join(SERVER_DIR, 'da
   const settings = createSettings(db);
   const auth = createAuth(db);
   const publicPrefixes = [];
+  const closers = []; // stop functions for timers and in-flight work; close() awaits them before the db closes
   const ctx = {
     db, crypto, settings, auth,
     events: new EventEmitter(),
@@ -52,6 +53,7 @@ function createApp({ dataDir = process.env.DATA_DIR || path.join(SERVER_DIR, 'da
     requireRole: role => auth.requireRole(role),
     requireConfirm,
     allowPublic: prefix => publicPrefixes.push(prefix),
+    onClose: fn => closers.push(fn),
     version: readVersion(),
     startedAt: Date.now(),
     paths: { serverDir: SERVER_DIR, dataDir, publicDir: path.join(SERVER_DIR, 'public') }
@@ -126,6 +128,9 @@ function createApp({ dataDir = process.env.DATA_DIR || path.join(SERVER_DIR, 'da
       ctx.scheduler.stop();
       ctx.retention.stop();
       clearInterval(staleTimer);
+      for (const fn of [...closers].reverse()) {
+        try { await fn(); } catch (err) { ctx.logger.error('[close]', err.message); }
+      }
       ctx.agents.close();
       server.closeAllConnections();
       await new Promise(resolve => server.close(() => resolve()));

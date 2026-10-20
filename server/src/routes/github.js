@@ -6,6 +6,7 @@ module.exports = (app, ctx) => {
   const github = createGithub(ctx);
   ctx.github = github; // { runnerOnline, latestRunner, status, queued, fleet, ... } for runbooks and alert rules
   github.start();
+  ctx.onClose(() => github.stop());
   const admin = ctx.requireRole('admin');
 
   // Registered here, not in runners.js: routes load alphabetically and metrics.js claims /api/hosts/:id/runners as an
