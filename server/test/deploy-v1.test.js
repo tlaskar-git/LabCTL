@@ -138,6 +138,23 @@ test('v1 hosts: address and OS derived from what v1 stored, overrides validated'
   });
 });
 
+test('redeploy with a shared credential: needs no user in the request, unknown ids are refused', async (t) => {
+  const s = await startApp();
+  t.after(() => s.stop());
+  const admin = api(s.base, await login(s.base));
+  addHost(s, 'v1-shared', { hostname: 'shared-a', os: 'debian-12', ip: '192.0.2.50' });
+  const made = await admin('POST', '/api/credentials', { name: 'root', username: 'root', password: PW });
+  assert.equal(made.status, 200, JSON.stringify(made.data));
+  const bad = await admin('POST', '/api/hosts/v1-shared/redeploy', { auth: { credential_id: 'nope' } });
+  assert.equal(bad.status, 400);
+  assert.match(JSON.stringify(bad.data), /Unknown credential/);
+  const ok = await admin('POST', '/api/hosts/v1-shared/redeploy', { auth: { credential_id: made.data.id }, port: await closedPort() });
+  assert.equal(ok.status, 202, JSON.stringify(ok.data));
+  const d = await finished(admin, ok.data.deploy_id, 20000);
+  assert.equal(d.state, 'failed');
+  assert.doesNotMatch(d.error || '', /user name is required/);
+});
+
 test('windows: both ways in closed gives the two options in plain words', async () => {
   const port = await closedPort();
   const r = await windows.inspect({ os: 'windows', address: '127.0.0.1', port, user: 'a', password: 'p' }, { server: 'http://192.0.2.1' });

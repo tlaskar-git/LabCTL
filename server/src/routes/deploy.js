@@ -72,7 +72,7 @@ module.exports = (app, ctx) => {
     const reset = req.body?.reset_host_key;
     if (reset && !isAdmin(req)) throw deploy.bad('admin role required to reset the host key', 403);
     return { os: dd.os || osOfHost(h.os), address: addressOf(h, dd), port: dd.port, relay_host_id: dd.relay_host_id, no_service: dd.no_service,
-      host_key: reset ? '' : dd.host_key, auth: { user: dd.user, credential_id: dd.credential_id } };
+      host_key: reset ? '' : dd.host_key, auth: { user: req.body?.auth?.credential_id ? undefined : dd.user, credential_id: dd.credential_id } };
   }
   const agentHost = req => {
     const h = hostRow(req.params.id);

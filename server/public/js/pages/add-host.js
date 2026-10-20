@@ -3,6 +3,7 @@ import { api } from '../api.js';
 import { html, Modal } from '../ui.js';
 import { DeployLog, useDeployClose } from '../components/deploy-log.js';
 import { ManualInstall } from '../components/deploy-manual.js';
+import { CredentialPicker } from '../components/credential-picker.js';
 
 const STEPS = ['Target', 'Credentials', 'Pre-flight', 'Install', 'Result'];
 const OSES = [['linux', 'Linux'], ['mac', 'Mac'], ['windows', 'Windows']];
@@ -16,7 +17,7 @@ export default function AddHost({ onClose, addToast, currentUser }) {
   const [tab, setTab] = useState('network');
   const [step, setStep] = useState(0);
   const [f, setF] = useState({ address: '', port: '', os: 'linux', name: '', user: '', auth: 'password', password: '', private_key: '', passphrase: '',
-    sudo_password: '', save_credential: false, relay_host_id: '', no_service: false });
+    sudo_password: '', credential_id: '', save_credential: false, relay_host_id: '', no_service: false });
   const [relays, setRelays] = useState([]);
   const [pre, setPre] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -31,7 +32,7 @@ export default function AddHost({ onClose, addToast, currentUser }) {
   const windows = f.os === 'windows';
   const body = () => ({ address: f.address.trim(), port: f.port ? Number(f.port) : undefined, os: f.os, name: f.name || f.address,
     relay_host_id: f.relay_host_id || undefined, no_service: f.no_service,
-    auth: { user: f.user.trim(), ...(f.auth === 'key' ? { private_key: f.private_key, passphrase: f.passphrase } : { password: f.password }),
+    auth: f.credential_id ? { credential_id: f.credential_id } : { user: f.user.trim(), ...(f.auth === 'key' ? { private_key: f.private_key, passphrase: f.passphrase } : { password: f.password }),
       ...(f.sudo_password && !windows ? { sudo_password: f.sudo_password } : {}) } });
 
   const runPreflight = async () => {
@@ -48,7 +49,7 @@ export default function AddHost({ onClose, addToast, currentUser }) {
   };
   const finish = d => { setBusy(false); setResult(d); setStep(4); };
 
-  const canNext = [!!f.address.trim() && !!f.os, !!f.user.trim() && (f.auth === 'key' ? !!f.private_key.trim() : !!f.password), !!pre?.ok, false, true][step];
+  const canNext = [!!f.address.trim() && !!f.os, !!f.credential_id || (!!f.user.trim() && (f.auth === 'key' ? !!f.private_key.trim() : !!f.password)), !!pre?.ok, false, true][step];
   const loadKey = e => { const file = e.target.files?.[0]; if (file) file.text().then(v => set('private_key', v)); };
 
   const targetStep = html`<div>
@@ -63,6 +64,8 @@ export default function AddHost({ onClose, addToast, currentUser }) {
   </div>`;
 
   const credStep = html`<div>
+    <${CredentialPicker} value=${f.credential_id} onChange=${v => set('credential_id', v.credential_id)} allowInline/>
+    ${!f.credential_id && html`<div>
     <div class="form-row">
       ${field(windows ? 'User (an administrator)' : 'User', html`<input ...${text('user', { placeholder: windows ? 'Administrator or DOMAIN\\name' : 'ubuntu' })}/>`)}
       ${field('Sign in with', html`<select class="select" value=${f.auth} onChange=${e => set('auth', e.target.value)}>
@@ -76,12 +79,13 @@ export default function AddHost({ onClose, addToast, currentUser }) {
           ${field('Key passphrase (if any)', html`<input ...${text('passphrase', { type: 'password', autocomplete: 'new-password' })}/>`)}
         </div>`}
     ${!windows && field('sudo password (blank: same as the login password)', html`<input ...${text('sudo_password', { type: 'password', autocomplete: 'new-password' })}/>`)}
+    </div>`}
     ${!windows && field('Relay (optional)', html`<select class="select" value=${f.relay_host_id} onChange=${e => set('relay_host_id', e.target.value)}>
       <option value="">None, connect directly from the server</option>
       ${relays.map(r => html`<option key=${r.id} value=${r.id}>${r.hostname} (${r.os})</option>`)}</select>`)}
     ${!windows && f.relay_host_id && html`<div class="page-desc" style=${{ marginBottom: 8 }}>The relay runs ssh to the target for you. It needs OpenSSH 8.4 or newer, curl and tar. Host keys are not pinned. The agent still connects to this server from the target.</div>`}
     ${!windows && html`<label class="checkbox-row"><input type="checkbox" checked=${f.no_service} onChange=${e => set('no_service', e.target.checked)}/> No service: run the agent in the background (containers without systemd)</label>`}
-    ${isAdmin && html`<label class="checkbox-row"><input type="checkbox" checked=${f.save_credential} onChange=${e => set('save_credential', e.target.checked)}/> Save credential (sealed on the server, used for Redeploy and Remove agent). Off: used for this install only.</label>`}
+    ${isAdmin && !f.credential_id && html`<label class="checkbox-row"><input type="checkbox" checked=${f.save_credential} onChange=${e => set('save_credential', e.target.checked)}/> Save credential (sealed on the server, used for Redeploy and Remove agent). Off: used for this install only.</label>`}
   </div>`;
 
   const preStep = html`<div>

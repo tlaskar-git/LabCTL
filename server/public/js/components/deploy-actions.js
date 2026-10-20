@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'preact/hooks';
 import { api } from '../api.js';
 import { html, Modal, Icons } from '../ui.js';
+import { CredentialPicker } from './credential-picker.js';
 import { DeployLog, useDeployClose } from './deploy-log.js';
 
 const field = (label, input) => html`<div class="form-group"><label class="form-label">${label}</label>${input}</div>`;
@@ -9,6 +10,8 @@ const field = (label, input) => html`<div class="form-group"><label class="form-
 function Creds({ f, set, saved, isAdmin, offerSave }) {
   const text = (k, extra = {}) => ({ class: 'input', value: f[k], onInput: e => set(k, e.target.value), ...extra });
   return html`<div>
+    <${CredentialPicker} value=${f.credential_id} onChange=${v => set('credential_id', v.credential_id)} allowInline/>
+    ${!f.credential_id && html`<div>
     ${saved && html`<div class="page-desc" style=${{ marginBottom: 8 }}>A saved credential exists for this host. Leave these fields empty to use it.</div>`}
     <div class="form-row">
       ${field('User', html`<input ...${text('user')}/>`)}
@@ -17,11 +20,12 @@ function Creds({ f, set, saved, isAdmin, offerSave }) {
     ${field('Private key (instead of a password)', html`<textarea class="textarea" rows="3" value=${f.private_key} onInput=${e => set('private_key', e.target.value)}/>`)}
     ${field('sudo password (Linux and Mac, blank: same as the password)', html`<input ...${text('sudo_password', { type: 'password', autocomplete: 'new-password' })}/>`)}
     ${offerSave && isAdmin && html`<label class="checkbox-row"><input type="checkbox" checked=${f.save_credential} onChange=${e => set('save_credential', e.target.checked)}/> Save credential (sealed)</label>`}
+    </div>`}
   </div>`;
 }
-const authOf = f => ({ ...(f.user ? { user: f.user } : {}), ...(f.password ? { password: f.password } : {}), ...(f.private_key ? { private_key: f.private_key } : {}),
+const authOf = f => (f.credential_id ? { credential_id: f.credential_id } : { ...(f.user ? { user: f.user } : {}), ...(f.password ? { password: f.password } : {}), ...(f.private_key ? { private_key: f.private_key } : {}),
   ...(f.sudo_password ? { sudo_password: f.sudo_password } : {}) });
-const blank = { user: '', password: '', private_key: '', sudo_password: '', save_credential: false, also_remove: false, confirm: '',
+const blank = { credential_id: '', user: '', password: '', private_key: '', sudo_password: '', save_credential: false, also_remove: false, confirm: '',
   address: '', os: 'linux', port: '' };
 const ADDRESS = /^(?!-)[A-Za-z0-9._:-]{1,253}$/; // same rule as the server
 
@@ -68,7 +72,7 @@ export function RedeployDialog({ host, isAdmin, addToast, onClose, onDone }) {
       ${error && html`<div style=${{ color: 'var(--red)', fontSize: 13 }} role="alert">${error}</div>`}
       <div class="btn-group" style=${{ justifyContent: 'flex-end', marginTop: 12 }}>
         <button class="btn" onClick=${close}>Cancel</button>
-        <button class="btn btn-primary" onClick=${go} disabled=${busy || !addressOk || !portOk || (!saved && !f.user)}>${busy ? 'Starting...' : 'Redeploy'}</button>
+        <button class="btn btn-primary" onClick=${go} disabled=${busy || !addressOk || !portOk || (!saved && !f.credential_id && !f.user)}>${busy ? 'Starting...' : 'Redeploy'}</button>
       </div>
     </div>`}
     ${deployId && html`<${DeployLog} deployId=${deployId} onDone=${d => { setResult(d); addToast(d.state === 'done' ? 'Agent redeployed' : `Redeploy failed: ${d.error}`, d.state === 'done' ? 'success' : 'error'); }}/>`}
