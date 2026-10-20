@@ -1,0 +1,38 @@
+/* Host icons: SVG files used as masks, so the colour comes from `color` (theme tokens, tinted by status). */
+.os-icon {
+  display: inline-block; flex: none; width: 24px; height: 24px; background-color: currentColor;
+  -webkit-mask: var(--os-icon) center / contain no-repeat; mask: var(--os-icon) center / contain no-repeat;
+}
+.os-icon[data-icon="adguard"] { --os-icon: url(../vendor/icons/adguard.svg); }
+.os-icon[data-icon="alpinelinux"] { --os-icon: url(../vendor/icons/alpinelinux.svg); }
+.os-icon[data-icon="apple"] { --os-icon: url(../vendor/icons/apple.svg); }
+.os-icon[data-icon="archlinux"] { --os-icon: url(../vendor/icons/archlinux.svg); }
+.os-icon[data-icon="box"] { --os-icon: url(../vendor/icons/box.svg); }
+.os-icon[data-icon="centos"] { --os-icon: url(../vendor/icons/centos.svg); }
+.os-icon[data-icon="database"] { --os-icon: url(../vendor/icons/database.svg); }
+.os-icon[data-icon="dc"] { --os-icon: url(../vendor/icons/dc.svg); }
+.os-icon[data-icon="debian"] { --os-icon: url(../vendor/icons/debian.svg); }
+.os-icon[data-icon="docker"] { --os-icon: url(../vendor/icons/docker.svg); }
+.os-icon[data-icon="fedora"] { --os-icon: url(../vendor/icons/fedora.svg); }
+.os-icon[data-icon="github"] { --os-icon: url(../vendor/icons/github.svg); }
+.os-icon[data-icon="homeassistant"] { --os-icon: url(../vendor/icons/homeassistant.svg); }
+.os-icon[data-icon="kubernetes"] { --os-icon: url(../vendor/icons/kubernetes.svg); }
+.os-icon[data-icon="linux"] { --os-icon: url(../vendor/icons/linux.svg); }
+.os-icon[data-icon="nginx"] { --os-icon: url(../vendor/icons/nginx.svg); }
+.os-icon[data-icon="opensuse"] { --os-icon: url(../vendor/icons/opensuse.svg); }
+.os-icon[data-icon="pihole"] { --os-icon: url(../vendor/icons/pihole.svg); }
+.os-icon[data-icon="proxmox"] { --os-icon: url(../vendor/icons/proxmox.svg); }
+.os-icon[data-icon="raspberrypi"] { --os-icon: url(../vendor/icons/raspberrypi.svg); }
+.os-icon[data-icon="redhat"] { --os-icon: url(../vendor/icons/redhat.svg); }
+.os-icon[data-icon="router"] { --os-icon: url(../vendor/icons/router.svg); }
+.os-icon[data-icon="server"] { --os-icon: url(../vendor/icons/server.svg); }
+.os-icon[data-icon="shield"] { --os-icon: url(../vendor/icons/shield.svg); }
+.os-icon[data-icon="suse"] { --os-icon: url(../vendor/icons/suse.svg); }
+.os-icon[data-icon="synology"] { --os-icon: url(../vendor/icons/synology.svg); }
+.os-icon[data-icon="traefikproxy"] { --os-icon: url(../vendor/icons/traefikproxy.svg); }
+.os-icon[data-icon="truenas"] { --os-icon: url(../vendor/icons/truenas.svg); }
+.os-icon[data-icon="ubuntu"] { --os-icon: url(../vendor/icons/ubuntu.svg); }
+.os-icon[data-icon="vmware"] { --os-icon: url(../vendor/icons/vmware.svg); }
+.os-icon[data-icon="vps"] { --os-icon: url(../vendor/icons/vps.svg); }
+.os-icon[data-icon="windows"] { --os-icon: url(../vendor/icons/windows.svg); }
+.os-icon[data-icon="wireguard"] { --os-icon: url(../vendor/icons/wireguard.svg); }

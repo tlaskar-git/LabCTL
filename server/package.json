@@ -1,16 +1,25 @@
 {
   "name": "labctl-server",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "LabCTL - Homelab Management Server",
   "main": "server.js",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js"
+    "dev": "node server.js",
+    "test": "node --test",
+    "lint": "node scripts/lint.js",
+    "genkey": "node src/crypto.js"
   },
   "dependencies": {
+    "better-sqlite3": "^13.0.3",
     "cors": "^2.8.5",
+    "cron-parser": "^5.10.2",
     "express": "^4.21.0",
-    "uuid": "^10.0.0",
+    "ssh2": "^1.17.0",
+    "winrm-client": "^0.0.12",
     "ws": "^8.18.0"
   }
 }

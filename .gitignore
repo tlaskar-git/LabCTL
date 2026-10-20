@@ -7,3 +7,6 @@ server/labctl-data.json
 __pycache__/
 *.pyc
 .env
+
+# test fixtures are sample logs, keep them
+!agent/tests/fixtures/**/*.log

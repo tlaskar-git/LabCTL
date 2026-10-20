@@ -1,0 +1,9 @@
+{
+  "name": "labctl-updater",
+  "version": "2.0.0",
+  "description": "LabCTL update sidecar (no dependencies)",
+  "private": true,
+  "main": "updater.test.js",
+  "engines": { "node": ">=22" },
+  "scripts": { "start": "node updater.js", "test": "node --test" }
+}

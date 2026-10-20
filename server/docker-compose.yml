@@ -1,5 +1,18 @@
+# Environment variable NAMES used here. Values come from the shell or an env file, never from this file:
+#   LABCTL_MASTER_KEY      32-byte key for sealed credentials (generate with: npm run genkey)
+#   LABCTL_UPDATER_SECRET  shared secret between labctl and labctl-updater (any long random string)
+#   LABCTL_TAG             optional image tag, default latest
+#   LABCTL_REPO_DIR        optional, git update mode with a mounted checkout only (see the commented volume below)
+#
+# Networks:
+#   default           labctl only. Reverse proxy access, GitHub release checks and agent links use it.
+#   labctl-internal   internal: true, so no route to the outside and no published ports. labctl and
+#                     labctl-updater are the only members. The updater needs no egress: the Docker daemon on
+#                     the host pulls images and fetches the git source through the mounted socket.
 services:
   labctl:
+    # The image is pulled from GHCR by the updater. "build" is kept for installs that build from source.
+    image: ghcr.io/tlaskar-git/labctl:${LABCTL_TAG:-latest}
     build:
       context: ..
       dockerfile: server/Dockerfile
@@ -7,7 +20,57 @@ services:
     restart: unless-stopped
     ports:
       - "7700:7700"
+    networks:
+      - default
+      - labctl-internal
     volumes:
+      # Repo-root data/ (same path as v1, so existing installs migrate in place). Must be writable by uid 1000.
       - ../data:/app/data
     environment:
       - PORT=7700
+      # Value comes from the shell or an env file, never from this file. Generate one with: npm run genkey
+      - LABCTL_MASTER_KEY
+      # Same secret as the updater. Lets the server call the updater and lets the updater call /api/backup/run.
+      - LABCTL_UPDATER_SECRET
+      # Service name on labctl-internal. Docker DNS resolves it only for members of that network.
+      - LABCTL_UPDATER_URL=http://labctl-updater:8080
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:7700/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+  # Update sidecar. Holds the Docker socket, so it publishes no port, sits ONLY on the internal network
+  # (no egress) and answers only with the correct X-Updater-Secret header. Never add it to default and never
+  # add a ports: entry.
+  labctl-updater:
+    image: ghcr.io/tlaskar-git/labctl-updater:${LABCTL_TAG:-latest}
+    build:
+      context: ..
+      dockerfile: updater/Dockerfile
+    container_name: labctl-updater
+    restart: unless-stopped
+    depends_on:
+      - labctl
+    networks:
+      - labctl-internal
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Used only for the database file-copy backup when /api/backup/run is unavailable.
+      - ../data:/data
+      # Git mode default: the host daemon builds from a remote git context, so no checkout is needed.
+      # Optional mounted-checkout mode (the host keeps the checkout current): mount it at the SAME path as on the
+      # host and set LABCTL_REPO_DIR to it.
+      # - ${LABCTL_REPO_DIR}:${LABCTL_REPO_DIR}
+    environment:
+      - LABCTL_UPDATER_SECRET
+      - LABCTL_URL=http://labctl:7700
+      - LABCTL_CONTAINER=labctl
+      # - LABCTL_REPO_DIR
+
+networks:
+  default: {}
+  labctl-internal:
+    # internal: true gives no gateway and no route out. Members reach each other by service name only.
+    internal: true

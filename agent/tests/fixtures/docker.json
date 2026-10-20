@@ -1,0 +1,17 @@
+{
+  "ps": [
+    {"ID": "aaaaaaaaaaaa1111111111111111111111111111111111111111111111111111", "Names": "web", "Image": "nginx:1.25", "State": "running", "Status": "Up 2 hours (healthy)"},
+    {"ID": "bbbbbbbbbbbb2222222222222222222222222222222222222222222222222222", "Names": "worker", "Image": "example/worker:latest", "State": "exited", "Status": "Exited (1) 3 minutes ago"}
+  ],
+  "stats": [
+    {"BlockIO": "1.2MB / 0B", "CPUPerc": "0.50%", "Container": "aaaaaaaaaaaa", "ID": "aaaaaaaaaaaa1111111111111111111111111111111111111111111111111111", "MemPerc": "0.62%", "MemUsage": "12.5MiB / 1.944GiB", "Name": "web", "NetIO": "1.1kB / 0B", "PIDs": "5"}
+  ],
+  "inspect": [
+    {"Id": "aaaaaaaaaaaa1111111111111111111111111111111111111111111111111111", "Image": "sha256:1111", "RestartCount": 0, "State": {"Status": "running", "Health": {"Status": "healthy"}}},
+    {"Id": "bbbbbbbbbbbb2222222222222222222222222222222222222222222222222222", "Image": "sha256:2222", "RestartCount": 7, "State": {"Status": "exited"}}
+  ],
+  "images": [
+    {"Id": "sha256:1111", "Created": "2024-01-05T12:00:00.123456789Z", "RepoDigests": ["nginx@sha256:abcd"]},
+    {"Id": "sha256:2222", "Created": "2023-12-16T12:00:00Z", "RepoDigests": []}
+  ]
+}

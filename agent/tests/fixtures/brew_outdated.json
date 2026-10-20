@@ -1,0 +1,10 @@
+{
+  "formulae": [
+    {"name": "git", "installed_versions": ["2.43.0"], "current_version": "2.44.0", "pinned": false, "pinned_version": null},
+    {"name": "openssl@3", "installed_versions": ["3.2.0", "3.2.1"], "current_version": "3.3.0", "pinned": false, "pinned_version": null},
+    {"name": "node", "installed_versions": ["21.5.0"], "current_version": "21.7.1", "pinned": true, "pinned_version": "21.5.0"}
+  ],
+  "casks": [
+    {"name": "firefox", "installed_versions": ["123.0"], "current_version": "124.0"}
+  ]
+}

@@ -1,0 +1,9 @@
+﻿{
+  "agentId": 12,
+  "agentName": "runner-01",
+  "poolId": 1,
+  "poolName": "Default",
+  "serverUrl": "https://pipelines.actions.example.test/abc123",
+  "gitHubUrl": "https://github.com/example-org/example-repo",
+  "workFolder": "_work"
+}

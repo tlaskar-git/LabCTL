@@ -1,0 +1,2190 @@
+{
+  "version": 1,
+  "templates": [
+    {
+      "guard": false,
+      "drain": true,
+      "id": "mac_update",
+      "name": "macOS software update",
+      "description": "softwareupdate -l then -i -a. Optional restart and licence agreement. On Apple Silicon an admin user and stored password may be needed.",
+      "category": "mac",
+      "os": [
+        "darwin"
+      ],
+      "kinds": [
+        "agent"
+      ],
+      "shell": "bash",
+      "file": "darwin/mac_update.sh",
+      "params": [
+        {
+          "name": "DRY_RUN",
+          "type": "bool",
+          "default": false,
+          "label": "Dry run (report only, change nothing)"
+        },
+        {
+          "name": "RESTART",
+          "type": "bool",
+          "default": false,
+          "label": "Restart if an update needs it"
+        },
+        {
+          "name": "AGREE_TO_LICENSE",
+          "type": "bool",
+          "default": false,
+          "label": "Agree to licences"
+        },
+        {
+          "name": "ADMIN_USER",
+          "type": "string",
+          "default": "",
+          "label": "Admin user (Apple Silicon, optional)"
+        }
+      ],
+      "secrets": [
+        {
+          "name": "ADMIN_PASSWORD",
+          "label": "Admin password (stored credential)",
+          "required": false
+        }
+      ],
+      "timeout_s": 7200
+    },
+    {
+      "guard": false,
+      "drain": true,
+      "id": "brew_update",
+      "name": "Homebrew update",
+      "description": "brew update, upgrade, optional cask upgrade, cleanup. Runs as the console user.",
+      "category": "mac",
+      "os": [
+        "darwin"
+      ],
+      "kinds": [
+        "agent"
+      ],
+      "shell": "bash",
+      "file": "darwin/brew_update.sh",
+      "params": [
+        {
+          "name": "DRY_RUN",
+          "type": "bool",
+          "default": false,
+          "label": "Dry run (report only, change nothing)"
+        },
+        {
+          "name": "CASKS",
+          "type": "bool",
+          "default": false,
+          "label": "Also upgrade casks (--greedy)"
+        },
+        {
+          "name": "RUN_USER",
+          "type": "string",
+          "default": "",
+          "label": "User that owns the files (empty = automatic)"
+        }
+      ],
+      "timeout_s": 3600
+    },
+    {
+      "guard": false,
+      "drain": true,
+      "id": "xcode_cleanup",
+      "name": "Xcode cleanup",
+      "description": "DerivedData, unavailable simulators, archives and device support older than N days. Reports space freed.",
+      "category": "mac",
+      "os": [
+        "darwin"
+      ],
+      "kinds": [
+        "agent"
+      ],
+      "shell": "bash",
+      "file": "darwin/xcode_cleanup.sh",
+      "params": [
+        {
+          "name": "DRY_RUN",
+          "type": "bool",
+          "default": false,
+          "label": "Dry run (report only, change nothing)"
+        },
+        {
+          "name": "DAYS",
+          "type": "int",
+          "default": 30,
+          "label": "Keep days"
+        },
+        {
+          "name": "RUN_USER",
+          "type": "string",
+          "default": "",
+          "label": "User that owns the files (empty = automatic)"
+        }
+      ]
+    },
+    {
+      "guard": false,
+      "drain": true,
+      "id": "mac_disk_cleanup",
+      "name": "Mac disk cleanup",
+      "description": "Caches, logs, Docker or Colima prune and Trash older than N days.",
+      "category": "mac",
+      "os": [
+        "darwin"
+      ],
+      "kinds": [
+        "agent"
+      ],
+      "shell": "bash",
+      "file": "darwin/mac_disk_cleanup.sh",
+      "params": [
+        {
+          "name": "DRY_RUN",
+          "type": "bool",
+          "default": false,
+          "label": "Dry run (report only, change nothing)"
+        },
+        {
+          "name": "DAYS",
+          "type": "int",
+          "default": 14,
+          "label": "Keep days"
+        },
+        {
+          "name": "TRASH_DAYS",
+          "type": "int",
+          "default": 7,
+          "label": "Keep Trash days (1 or more)"
+        },
+        {
+          "name": "DOCKER",
+          "type": "bool",
+          "default": true,
+          "label": "Prune Docker or Colima"
+        },
+        {
+          "name": "RUN_USER",
+          "type": "string",
+          "default": "",
+          "label": "User that owns the files (empty = automatic)"
+        }
+      ]
+    },
+    {
+      "guard": false,
+      "drain": true,
+      "id": "mac_reboot",
+      "name": "Mac reboot",
+      "description": "Reboots after a delay. Refuses while a runner job is active.",
+      "category": "mac",
+      "os": [
+        "darwin"
+      ],
+      "kinds": [
+        "agent"
+      ],
+      "shell": "bash",
+      "file": "darwin/mac_reboot.sh",
+      "params": [
+        {
+          "name": "DRY_RUN",
+          "type": "bool",
+          "default": false,
+          "label": "Dry run (report only, change nothing)"
+        },
+        {
+          "name": "DELAY_MIN",
+          "type": "int",
+          "default": 1,
+          "label": "Delay (minutes, 1 or more)"
+        }
+      ]
+    },
+    {
+      "guard": false,
+      "drain": false,
+      "id": "mac_security_report",
+      "name": "Mac security report",
+      "description": "SIP, Gatekeeper, FileVault, firewall, update settings, XProtect, pending updates.",
+      "category": "mac",
+      "os": [
+        "darwin"
+      ],
+      "kinds": [
+        "agent"
+      ],
+      "shell": "bash",
+      "file": "darwin/mac_security_report.sh",
+      "params": [
+        {
+          "name": "FAIL_ON_WARN",
+          "type": "bool",
+          "default": false,
+          "label": "Fail when anything is flagged"
+        }
+      ]
+    },
+    {
+      "guard": false,
+      "drain": false,
+      "id": "mac_runner_checks",
+      "name": "Mac runner session checks",
+      "description": "Console session, automatic login, login keychain lock, runner LaunchAgent.",
+      "category": "mac",
+      "os": [
+        "darwin"
+      ],
+      "kinds": [
+        "agent",
+        "runner"
+      ],
+      "shell": "bash",
+      "file": "darwin/mac_runner_checks.sh",
+      "params": [
+        {
+          "name": "RUN_USER",
+          "type": "string",
+          "default": "",
+          "label": "User that owns the files (empty = automatic)"
+        }
+      ]
+    },
+    {
+      "guard": false,
+      "drain": true,
+      "id": "runner_update",
+      "name": "Runner update",
+      "description": "Latest actions/runner package, SHA-256 checked, files replaced while .runner, credentials and _work are kept. The old folder stays as .labctl-prev for rollback.",
+      "category": "runner",
+      "os": [
+        "linux",
+        "darwin"
+      ],
+      "kinds": [
+        "runner",
+        "agent"
+      ],
+      "shell": "bash",
+      "file": "unix/runner_update.sh",
+      "params": [
+        {
+          "name": "DRY_RUN",
+          "type": "bool",
+          "default": false,
+          "label": "Dry run (report only, change nothing)"
+        },
+        {
+          "name": "VERSION",
+          "type": "string",
+          "default": "",
+          "label": "Version (empty = latest)"
+        },
+        {
+          "name": "RUNNER_DIR",
+          "type": "string",
+          "default": "",
+          "label": "Runner folder (empty = every runner found)"
+        }
+      ],
+      "secrets": [
+        {
+          "name": "GITHUB_TOKEN",
+          "label": "GitHub token for the API (optional)",
+          "required": false
+        }
+      ],
+      "timeout_s": 7200
+    },
+    {
+      "guard": false,
+      "drain": true,
+      "id": "runner_rollback",
+      "name": "Runner rollback or discard",
+      "description": "Restores the folder kept by runner_update, or deletes it after the update is proven.",
+      "category": "runner",
+      "os": [
+        "linux",
+        "darwin"
+      ],
+      "kinds": [
+        "runner",
+        "agent"
+      ],
+      "shell": "bash",
+      "file": "unix/runner_rollback.sh",
+      "params": [
+        {
+          "name": "DRY_RUN",
+          "type": "bool",
+          "default": false,
+          "label": "Dry run (report only, change nothing)"
+        },
+        {
+          "name": "ACTION",
+          "type": "enum",
+          "options": [
+            "rollback",
+            "discard"
+          ],
+          "default": "rollback",
+          "label": "Action"
+        },
+        {
+          "name": "RUNNER_DIR",
+          "type": "string",
+          "default": "",
+          "label": "Runner folder (empty = every runner found)"
+        }
+      ],
+      "timeout_s": 3600
+    },
+    {
+      "guard": false,
+      "drain": true,
+      "id": "runner_restart",
+      "name": "Runner stop, start or restart",
+      "description": "Stops (after drain), starts or restarts the runner service and waits for it to run.",
+      "category": "runner",
+      "os": [
+        "linux",
+        "darwin"
+      ],
+      "kinds": [
+        "runner",
+        "agent"
+      ],
+      "shell": "bash",
+      "file": "unix/runner_restart.sh",
+      "params": [
+        {
+          "name": "DRY_RUN",
+          "type": "bool",
+          "default": false,
+          "label": "Dry run (report only, change nothing)"
+        },
+        {
+          "name": "ACTION",
+          "type": "enum",
+          "options": [
+            "stop",
+            "start",
+            "restart"
+          ],
+          "default": "restart",
+          "label": "Action"
+        },
+        {
+          "name": "WAIT_S",
+          "type": "int",
+          "default": 60,
+          "label": "Wait for service (seconds)"
+        },
+        {
+          "name": "RUNNER_DIR",
+          "type": "string",
+          "default": "",
+          "label": "Runner folder (empty = every runner found)"
+        }
+      ],
+      "timeout_s": 7200
+    },
+    {
+      "guard": false,
+      "drain": false,
+      "id": "runner_health_check",
+      "name": "Runner health check",
+      "description": "Service, listener process, version, disk and the latest listener log lines.",
+      "category": "runner",
+      "os": [
+        "linux",
+        "darwin"
+      ],
+      "kinds": [
+        "runner",
+        "agent"
+      ],
+      "shell": "bash",
+      "file": "unix/runner_health_check.sh",
+      "params": [
+        {
+          "name": "CHECK_LATEST",
+          "type": "bool",
+          "default": false,
+          "label": "Compare with the latest release"
+        },
+        {
+          "name": "FAIL_ON_DOWN",
+          "type": "bool",
+          "default": true,
+          "label": "Fail when a runner is down"
+        },
+        {
+          "name": "RUNNER_DIR",
+          "type": "string",
+          "default": "",
+          "label": "Runner folder (empty = every runner found)"
+        }
+      ],
+      "secrets": [
+        {
+          "name": "GITHUB_TOKEN",
+          "label": "GitHub token for the API (optional)",
+          "required": false
+        }
+      ]
+    },
+    {
+      "guard": false,
+      "drain": true,
+      "id": "runner_cleanup",
+      "name": "Runner cleanup",
+      "description": "Old workspaces, _diag logs, _temp, tool cache and update leftovers. Only when idle.",
+      "category": "runner",
+      "os": [
+        "linux",
+        "darwin"
+      ],
+      "kinds": [
+        "runner",
+        "agent"
+      ],
+      "shell": "bash",
+      "file": "unix/runner_cleanup.sh",
+      "params": [
+        {
+          "name": "DRY_RUN",
+          "type": "bool",
+          "default": false,
+          "label": "Dry run (report only, change nothing)"
+        },
+        {
+          "name": "WORK_DAYS",
+          "type": "int",
+          "default": 7,
+          "label": "Workspace age (days)"
+        },
+        {
+          "name": "DIAG_DAYS",
+          "type": "int",
+          "default": 14,
+          "label": "_diag age (days)"
+        },
+        {
+          "name": "TOOL_DAYS",
+          "type": "int",
+          "default": 30,
+          "label": "Tool cache age (days)"
+        },
+        {
+          "name": "PREV_DAYS",
+          "type": "int",
+          "default": 7,
+          "label": "Update leftover age (days)"
+        },
+        {
+          "name": "RUNNER_DIR",
+          "type": "string",
+          "default": "",
+          "label": "Runner folder (empty = every runner found)"
+        }
+      ]
+    },
+    {
+      "guard": false,
+      "drain": true,
+      "id": "runner_reregister",
+      "name": "Runner re-register",
+      "description": "Replaces the registration with config --unattended --replace. The token is never stored.",
+      "category": "runner",
+      "os": [
+        "linux",
+        "darwin"
+      ],
+      "kinds": [
+        "runner",
+        "agent"
+      ],
+      "shell": "bash",
+      "file": "unix/runner_reregister.sh",
+      "params": [
+        {
+          "name": "EPHEMERAL",
+          "type": "bool",
+          "default": false,
+          "label": "Register as an ephemeral runner (one job, then removed)"
+        },
+        {
+          "name": "CLEAN_WORK",
+          "type": "bool",
+          "default": false,
+          "label": "Empty _work and _temp before registering"
+        },
+        {
+          "name": "DRY_RUN",
+          "type": "bool",
+          "default": false,
+          "label": "Dry run (report only, change nothing)"
+        },
+        {
+          "name": "NAME",
+          "type": "string",
+          "default": "",
+          "label": "Runner name (empty = current)"
+        },
+        {
+          "name": "URL",
+          "type": "string",
+          "default": "",
+          "label": "Repository or organisation URL (empty = current)"
+        },
+        {
+          "name": "LABELS",
+          "type": "string",
+          "default": "",
+          "label": "Labels, comma separated (empty = defaults)"
+        },
+        {
+          "name": "RUNNER_GROUP",
+          "type": "string",
+          "default": "",
+          "label": "Runner group"
+        },
+        {
+          "name": "DISABLE_UPDATE",
+          "type": "bool",
+          "default": false,
+          "label": "Disable runner self-update"
+        },
+        {
+          "name": "RUNNER_DIR",
+          "type": "string",
+          "default": "",
+          "label": "Runner folder (empty = every runner found)"
+        }
+      ],
+      "secrets": [
+        {
+          "name": "REG_TOKEN",
+          "label": "Registration token (stored credential)",
+          "required": true
+        }
+      ]
+    },
+    {
+      "guard": true,
+      "drain": true,
+      "id": "runner_remove",
+      "name": "Runner remove",
+      "description": "Stops and uninstalls the service, unregisters from GitHub and deletes the folder.",
+      "category": "runner",
+      "os": [
+        "linux",
+        "darwin"
+      ],
+      "kinds": [
+        "runner",
+        "agent"
+      ],
+      "shell": "bash",
+      "file": "unix/runner_remove.sh",
+      "params": [
+        {
+          "name": "DRY_RUN",
+          "type": "bool",
+          "default": false,
+          "label": "Dry run (report only, change nothing)"
+        },
+        {
+          "name": "RUNNER_DIR",
+          "type": "string",
+          "default": "",
+          "label": "Runner folder (required)"
+        }
+      ],
+      "secrets": [
+        {
+          "name": "REMOVE_TOKEN",
+          "label": "Removal token (stored credential)",
+          "required": true
+        }
+      ],
+      "admin": true
+    },
+    {
+      "guard": false,
+      "drain": false,
+      "id": "runner_add",
+      "name": "Runner add",
+      "description": "Downloads, verifies, registers and installs a runner service.",
+      "category": "runner",
+      "os": [
+        "linux",
+        "darwin"
+      ],
+      "kinds": [
+        "runner",
+        "agent"
+      ],
+      "shell": "bash",
+      "file": "unix/runner_add.sh",
+      "params": [
+        {
+          "name": "DRY_RUN",
+          "type": "bool",
+          "default": false,
+          "label": "Dry run (report only, change nothing)"
+        },
+        {
+          "name": "URL",
+          "type": "string",
+          "default": "",
+          "label": "Repository or organisation URL"
+        },
+        {
+          "name": "NAME",
+          "type": "string",
+          "default": "",
+          "label": "Runner name"
+        },
+        {
+          "name": "LABELS",
+          "type": "string",
+          "default": "",
+          "label": "Labels, comma separated"
+        },
+        {
+          "name": "RUNNER_GROUP",
+          "type": "string",
+          "default": "",
+          "label": "Runner group"
+        },
+        {
+          "name": "EPHEMERAL",
+          "type": "bool",
+          "default": false,
+          "label": "Ephemeral runner"
+        },
+        {
+          "name": "DISABLE_UPDATE",
+          "type": "bool",
+          "default": false,
+          "label": "Disable runner self-update"
+        },
+        {
+          "name": "RUN_USER",
+          "type": "string",
+          "default": "",
+          "label": "Service user (Linux default runner)"
+        },
+        {
+          "name": "INSTALL_DIR",
+          "type": "string",
+          "default": "",
+          "label": "Install folder (empty = default)"
+        },
+        {
+          "name": "VERSION",
+          "type": "string",
+          "default": "",
+          "label": "Version (empty = latest)"
+        }
+      ],
+      "secrets": [
+        {
+          "name": "REG_TOKEN",
+          "label": "Registration token (stored credential)",
+          "required": true
+        },
+        {
+          "name": "GITHUB_TOKEN",
+          "label": "GitHub token for the API (optional)",
+          "required": false
+        }
+      ],
+      "timeout_s": 3600
+    },
+    {
+      "guard": false,
+      "drain": true,
+      "id": "orphan_process_killer",
+      "name": "Orphan process killer",
+      "description": "Stops build processes left behind in a _work folder with no parent, when idle.",
+      "category": "runner",
+      "os": [
+        "linux",
+        "darwin"
+      ],
+      "kinds": [
+        "runner",
+        "agent"
+      ],
+      "shell": "bash",
+      "file": "unix/orphan_process_killer.sh",
+      "params": [
+        {
+          "name": "DRY_RUN",
+          "type": "bool",
+          "default": false,
+          "label": "Dry run (report only, change nothing)"
+        },
+        {
+          "name": "MIN_AGE_MIN",
+          "type": "int",
+          "default": 30,
+          "label": "Minimum age (minutes)"
+        }
+      ]
+    },
+    {
+      "guard": false,
+      "drain": true,
+      "id": "docker_cleanup",
+      "name": "Docker cleanup",
+      "description": "System prune and build cache prune with a size cap.",
+      "category": "runner",
+      "os": [
+        "linux",
+        "darwin"
+      ],
+      "kinds": [
+        "runner",
+        "agent"
+      ],
+      "shell": "bash",
+      "file": "unix/docker_cleanup.sh",
+      "params": [
+        {
+          "name": "DRY_RUN",
+          "type": "bool",
+          "default": false,
+          "label": "Dry run (report only, change nothing)"
+        },
+        {
+          "name": "HOURS",
+          "type": "int",
+          "default": 24,
+          "label": "Keep objects newer than (hours)"
+        },
+        {
+          "name": "CACHE_CAP_GB",
+          "type": "int",
+          "default": 20,
+          "label": "Build cache cap (GB)"
+        },
+        {
+          "name": "ALL_IMAGES",
+          "type": "bool",
+          "default": false,
+          "label": "Remove all unused images (-a)"
+        },
+        {
+          "name": "VOLUMES",
+          "type": "bool",
+          "default": false,
+          "label": "Also prune volumes"
+        },
+        {
+          "name": "RUN_USER",
+          "type": "string",
+          "default": "",
+          "label": "User that owns the files (empty = automatic)"
+        }
+      ],
+      "timeout_s": 3600
+    },
+    {
+      "guard": false,
+      "drain": true,
+      "id": "toolchain_cleanup",
+      "name": "Toolchain cache cleanup",
+      "description": "One switch per tool: npm, pnpm, pip, Gradle, Maven, NuGet, Cargo, Go build cache.",
+      "category": "runner",
+      "os": [
+        "linux",
+        "darwin"
+      ],
+      "kinds": [
+        "runner",
+        "agent"
+      ],
+      "shell": "bash",
+      "file": "unix/toolchain_cleanup.sh",
+      "params": [
+        {
+          "name": "DRY_RUN",
+          "type": "bool",
+          "default": false,
+          "label": "Dry run (report only, change nothing)"
+        },
+        {
+          "name": "NPM",
+          "type": "bool",
+          "default": false,
+          "label": "npm cache"
+        },
+        {
+          "name": "PNPM",
+          "type": "bool",
+          "default": false,
+          "label": "pnpm store"
+        },
+        {
+          "name": "PIP",
+          "type": "bool",
+          "default": false,
+          "label": "pip cache"
+        },
+        {
+          "name": "GRADLE",
+          "type": "bool",
+          "default": false,
+          "label": "Gradle build cache"
+        },
+        {
+          "name": "MAVEN",
+          "type": "bool",
+          "default": false,
+          "label": "Maven repository"
+        },
+        {
+          "name": "NUGET",
+          "type": "bool",
+          "default": false,
+          "label": "NuGet caches"
+        },
+        {
+          "name": "CARGO",
+          "type": "bool",
+          "default": false,
+          "label": "Cargo registry"
+        },
+        {
+          "name": "GO",
+          "type": "bool",
+          "default": false,
+          "label": "Go build cache"
+        },
+        {
+          "name": "DAYS",
+          "type": "int",
+          "default": 30,
+          "label": "Age for file based caches (days)"
+        },
+        {
+          "name": "RUN_USER",
+          "type": "string",
+          "default": "",
+          "label": "User that owns the files (empty = automatic)"
+        }
+      ],
+      "timeout_s": 3600
+    },
+    {
+      "guard": false,
+      "drain": true,
+      "id": "runner_update_win",
+      "name": "Runner update (Windows)",
+      "description": "Latest actions/runner package, SHA-256 checked, service stopped when idle, files replaced, previous folder kept.",
+      "category": "runner",
+      "os": [
+        "windows"
+      ],
+      "kinds": [
+        "runner",
+        "agent"
+      ],
+      "shell": "powershell",
+      "file": "windows/runner_update_win.ps1",
+      "params": [
+        {
+          "name": "DRY_RUN",
+          "type": "bool",
+          "default": false,
+          "label": "Dry run (report only, change nothing)"
+        },
+        {
+          "name": "VERSION",
+          "type": "string",
+          "default": "",
+          "label": "Version (empty = latest)"
+        },
+        {
+          "name": "RUNNER_DIR",
+          "type": "string",
+          "default": "",
+          "label": "Runner folder (empty = every runner found)"
+        }
+      ],
+      "secrets": [
+        {
+          "name": "GITHUB_TOKEN",
+          "label": "GitHub token for the API (optional)",
+          "required": false
+        }
+      ],
+      "timeout_s": 7200
+    },
+    {
+      "guard": false,
+      "drain": true,
+      "id": "runner_rollback_win",
+      "name": "Runner rollback or discard (Windows)",
+      "description": "Restores the folder kept by the update, or deletes it.",
+      "category": "runner",
+      "os": [
+        "windows"
+      ],
+      "kinds": [
+        "runner",
+        "agent"
+      ],
+      "shell": "powershell",
+      "file": "windows/runner_rollback_win.ps1",
+      "params": [
+        {
+          "name": "DRY_RUN",
+          "type": "bool",
+          "default": false,
+          "label": "Dry run (report only, change nothing)"
+        },
+        {
+          "name": "ACTION",
+          "type": "enum",
+          "options": [
+            "rollback",
+            "discard"
+          ],
+          "default": "rollback",
+          "label": "Action"
+        },
+        {
+          "name": "RUNNER_DIR",
+          "type": "string",
+          "default": "",
+          "label": "Runner folder (empty = every runner found)"
+        }
+      ],
+      "timeout_s": 3600
+    },
+    {
+      "guard": false,
+      "drain": true,
+      "id": "runner_restart_win",
+      "name": "Runner stop, start or restart (Windows)",
+      "description": "Stops (after drain), starts or restarts the runner service.",
+      "category": "runner",
+      "os": [
+        "windows"
+      ],
+      "kinds": [
+        "runner",
+        "agent"
+      ],
+      "shell": "powershell",
+      "file": "windows/runner_restart_win.ps1",
+      "params": [
+        {
+          "name": "DRY_RUN",
+          "type": "bool",
+          "default": false,
+          "label": "Dry run (report only, change nothing)"
+        },
+        {
+          "name": "ACTION",
+          "type": "enum",
+          "options": [
+            "stop",
+            "start",
+            "restart"
+          ],
+          "default": "restart",
+          "label": "Action"
+        },
+        {
+          "name": "WAIT_S",
+          "type": "int",
+          "default": 60,
+          "label": "Wait for service (seconds)"
+        },
+        {
+          "name": "RUNNER_DIR",
+          "type": "string",
+          "default": "",
+          "label": "Runner folder (empty = every runner found)"
+        }
+      ],
+      "timeout_s": 7200
+    },
+    {
+      "guard": false,
+      "drain": false,
+      "id": "runner_health_check_win",
+      "name": "Runner health check (Windows)",
+      "description": "Service, account, listener process, version, disk and listener log lines.",
+      "category": "runner",
+      "os": [
+        "windows"
+      ],
+      "kinds": [
+        "runner",
+        "agent"
+      ],
+      "shell": "powershell",
+      "file": "windows/runner_health_check_win.ps1",
+      "params": [
+        {
+          "name": "CHECK_LATEST",
+          "type": "bool",
+          "default": false,
+          "label": "Compare with the latest release"
+        },
+        {
+          "name": "FAIL_ON_DOWN",
+          "type": "bool",
+          "default": true,
+          "label": "Fail when a runner is down"
+        },
+        {
+          "name": "RUNNER_DIR",
+          "type": "string",
+          "default": "",
+          "label": "Runner folder (empty = every runner found)"
+        }
+      ],
+      "secrets": [
+        {
+          "name": "GITHUB_TOKEN",
+          "label": "GitHub token for the API (optional)",
+          "required": false
+        }
+      ]
+    },
+    {
+      "guard": false,
+      "drain": true,
+      "id": "runner_cleanup_win",
+      "name": "Runner cleanup (Windows)",
+      "description": "Old workspaces, _diag, _temp, tool cache, update leftovers and Windows temp files. Only when idle.",
+      "category": "runner",
+      "os": [
+        "windows"
+      ],
+      "kinds": [
+        "runner",
+        "agent"
+      ],
+      "shell": "powershell",
+      "file": "windows/runner_cleanup_win.ps1",
+      "params": [
+        {
+          "name": "DRY_RUN",
+          "type": "bool",
+          "default": false,
+          "label": "Dry run (report only, change nothing)"
+        },
+        {
+          "name": "WORK_DAYS",
+          "type": "int",
+          "default": 7,
+          "label": "Workspace age (days)"
+        },
+        {
+          "name": "DIAG_DAYS",
+          "type": "int",
+          "default": 14,
+          "label": "_diag age (days)"
+        },
+        {
+          "name": "TOOL_DAYS",
+          "type": "int",
+          "default": 30,
+          "label": "Tool cache age (days)"
+        },
+        {
+          "name": "PREV_DAYS",
+          "type": "int",
+          "default": 7,
+          "label": "Update leftover age (days)"
+        },
+        {
+          "name": "CLEAN_TEMP",
+          "type": "bool",
+          "default": true,
+          "label": "Clean Windows temp folders"
+        },
+        {
+          "name": "RUNNER_DIR",
+          "type": "string",
+          "default": "",
+          "label": "Runner folder (empty = every runner found)"
+        }
+      ]
+    },
+    {
+      "guard": false,
+      "drain": true,
+      "id": "runner_reregister_win",
+      "name": "Runner re-register (Windows)",
+      "description": "Replaces the registration with config.cmd --unattended --replace. The token is never stored.",
+      "category": "runner",
+      "os": [
+        "windows"
+      ],
+      "kinds": [
+        "runner",
+        "agent"
+      ],
+      "shell": "powershell",
+      "file": "windows/runner_reregister_win.ps1",
+      "params": [
+        {
+          "name": "EPHEMERAL",
+          "type": "bool",
+          "default": false,
+          "label": "Register as an ephemeral runner (one job, then removed)"
+        },
+        {
+          "name": "CLEAN_WORK",
+          "type": "bool",
+          "default": false,
+          "label": "Empty _work and _temp before registering"
+        },
+        {
+          "name": "DRY_RUN",
+          "type": "bool",
+          "default": false,
+          "label": "Dry run (report only, change nothing)"
+        },
+        {
+          "name": "NAME",
+          "type": "string",
+          "default": "",
+          "label": "Runner name (empty = current)"
+        },
+        {
+          "name": "URL",
+          "type": "string",
+          "default": "",
+          "label": "Repository or organisation URL (empty = current)"
+        },
+        {
+          "name": "LABELS",
+          "type": "string",
+          "default": "",
+          "label": "Labels, comma separated (empty = defaults)"
+        },
+        {
+          "name": "RUNNER_GROUP",
+          "type": "string",
+          "default": "",
+          "label": "Runner group"
+        },
+        {
+          "name": "DISABLE_UPDATE",
+          "type": "bool",
+          "default": false,
+          "label": "Disable runner self-update"
+        },
+        {
+          "name": "RUNNER_DIR",
+          "type": "string",
+          "default": "",
+          "label": "Runner folder (empty = every runner found)"
+        }
+      ],
+      "secrets": [
+        {
+          "name": "REG_TOKEN",
+          "label": "Registration token (stored credential)",
+          "required": true
+        }
+      ]
+    },
+    {
+      "guard": true,
+      "drain": true,
+      "id": "runner_remove_win",
+      "name": "Runner remove (Windows)",
+      "description": "Stops the service, unregisters from GitHub and deletes the folder.",
+      "category": "runner",
+      "os": [
+        "windows"
+      ],
+      "kinds": [
+        "runner",
+        "agent"
+      ],
+      "shell": "powershell",
+      "file": "windows/runner_remove_win.ps1",
+      "params": [
+        {
+          "name": "DRY_RUN",
+          "type": "bool",
+          "default": false,
+          "label": "Dry run (report only, change nothing)"
+        },
+        {
+          "name": "RUNNER_DIR",
+          "type": "string",
+          "default": "",
+          "label": "Runner folder (required)"
+        }
+      ],
+      "secrets": [
+        {
+          "name": "REMOVE_TOKEN",
+          "label": "Removal token (stored credential)",
+          "required": true
+        }
+      ],
+      "admin": true
+    },
+    {
+      "guard": false,
+      "drain": false,
+      "id": "runner_add_win",
+      "name": "Runner add (Windows)",
+      "description": "Downloads, verifies, registers and installs a runner service.",
+      "category": "runner",
+      "os": [
+        "windows"
+      ],
+      "kinds": [
+        "runner",
+        "agent"
+      ],
+      "shell": "powershell",
+      "file": "windows/runner_add_win.ps1",
+      "params": [
+        {
+          "name": "DRY_RUN",
+          "type": "bool",
+          "default": false,
+          "label": "Dry run (report only, change nothing)"
+        },
+        {
+          "name": "URL",
+          "type": "string",
+          "default": "",
+          "label": "Repository or organisation URL"
+        },
+        {
+          "name": "NAME",
+          "type": "string",
+          "default": "",
+          "label": "Runner name"
+        },
+        {
+          "name": "LABELS",
+          "type": "string",
+          "default": "",
+          "label": "Labels, comma separated"
+        },
+        {
+          "name": "RUNNER_GROUP",
+          "type": "string",
+          "default": "",
+          "label": "Runner group"
+        },
+        {
+          "name": "EPHEMERAL",
+          "type": "bool",
+          "default": false,
+          "label": "Ephemeral runner"
+        },
+        {
+          "name": "DISABLE_UPDATE",
+          "type": "bool",
+          "default": false,
+          "label": "Disable runner self-update"
+        },
+        {
+          "name": "SERVICE_ACCOUNT",
+          "type": "string",
+          "default": "NT AUTHORITY\\NETWORK SERVICE",
+          "label": "Service account"
+        },
+        {
+          "name": "INSTALL_DIR",
+          "type": "string",
+          "default": "",
+          "label": "Install folder (empty = C:\\actions-runner-NAME)"
+        },
+        {
+          "name": "VERSION",
+          "type": "string",
+          "default": "",
+          "label": "Version (empty = latest)"
+        }
+      ],
+      "secrets": [
+        {
+          "name": "REG_TOKEN",
+          "label": "Registration token (stored credential)",
+          "required": true
+        },
+        {
+          "name": "SERVICE_PASSWORD",
+          "label": "Password of a named service account",
+          "required": false
+        },
+        {
+          "name": "GITHUB_TOKEN",
+          "label": "GitHub token for the API (optional)",
+          "required": false
+        }
+      ],
+      "timeout_s": 3600
+    },
+    {
+      "guard": false,
+      "drain": true,
+      "id": "orphan_process_killer_win",
+      "name": "Orphan process killer (Windows)",
+      "description": "Stops build processes left behind in a _work folder with no parent, when idle.",
+      "category": "runner",
+      "os": [
+        "windows"
+      ],
+      "kinds": [
+        "runner",
+        "agent"
+      ],
+      "shell": "powershell",
+      "file": "windows/orphan_process_killer_win.ps1",
+      "params": [
+        {
+          "name": "DRY_RUN",
+          "type": "bool",
+          "default": false,
+          "label": "Dry run (report only, change nothing)"
+        },
+        {
+          "name": "MIN_AGE_MIN",
+          "type": "int",
+          "default": 30,
+          "label": "Minimum age (minutes)"
+        }
+      ]
+    },
+    {
+      "guard": false,
+      "drain": true,
+      "id": "toolchain_cleanup_win",
+      "name": "Toolchain cache cleanup (Windows)",
+      "description": "One switch per tool. Cleans files older than N days in the profile of the runner service account.",
+      "category": "runner",
+      "os": [
+        "windows"
+      ],
+      "kinds": [
+        "runner",
+        "agent"
+      ],
+      "shell": "powershell",
+      "file": "windows/toolchain_cleanup_win.ps1",
+      "params": [
+        {
+          "name": "DRY_RUN",
+          "type": "bool",
+          "default": false,
+          "label": "Dry run (report only, change nothing)"
+        },
+        {
+          "name": "NPM",
+          "type": "bool",
+          "default": false,
+          "label": "npm cache"
+        },
+        {
+          "name": "PNPM",
+          "type": "bool",
+          "default": false,
+          "label": "pnpm store"
+        },
+        {
+          "name": "PIP",
+          "type": "bool",
+          "default": false,
+          "label": "pip cache"
+        },
+        {
+          "name": "GRADLE",
+          "type": "bool",
+          "default": false,
+          "label": "Gradle build cache"
+        },
+        {
+          "name": "MAVEN",
+          "type": "bool",
+          "default": false,
+          "label": "Maven repository"
+        },
+        {
+          "name": "NUGET",
+          "type": "bool",
+          "default": false,
+          "label": "NuGet caches"
+        },
+        {
+          "name": "CARGO",
+          "type": "bool",
+          "default": false,
+          "label": "Cargo registry"
+        },
+        {
+          "name": "GO",
+          "type": "bool",
+          "default": false,
+          "label": "Go build cache"
+        },
+        {
+          "name": "DAYS",
+          "type": "int",
+          "default": 30,
+          "label": "Age (days)"
+        },
+        {
+          "name": "PROFILE",
+          "type": "string",
+          "default": "",
+          "label": "Profile folder (empty = runner service account)"
+        }
+      ],
+      "timeout_s": 3600
+    },
+    {
+      "guard": false,
+      "drain": false,
+      "id": "win_runner_report",
+      "name": "Windows runner report",
+      "description": "Service account, start mode, sessions, disk, .NET SDKs, NuGet and temp sizes.",
+      "category": "runner",
+      "os": [
+        "windows"
+      ],
+      "kinds": [
+        "runner",
+        "agent"
+      ],
+      "shell": "powershell",
+      "file": "windows/win_runner_report.ps1",
+      "params": [
+        {
+          "name": "RUNNER_DIR",
+          "type": "string",
+          "default": "",
+          "label": "Runner folder (empty = every runner found)"
+        }
+      ]
+    },
+    {
+      "guard": false,
+      "drain": false,
+      "id": "vps_apt_upgrade",
+      "name": "Linux apt update and upgrade",
+      "description": "apt update and upgrade with a held-back report and a reboot-required check.",
+      "category": "vps",
+      "os": [
+        "linux"
+      ],
+      "kinds": [
+        "vps",
+        "agent",
+        "ssh"
+      ],
+      "shell": "bash",
+      "file": "linux/vps_apt_upgrade.sh",
+      "params": [
+        {
+          "name": "DRY_RUN",
+          "type": "bool",
+          "default": false,
+          "label": "Dry run (report only, change nothing)"
+        },
+        {
+          "name": "FULL_UPGRADE",
+          "type": "bool",
+          "default": false,
+          "label": "Use full-upgrade"
+        },
+        {
+          "name": "AUTOREMOVE",
+          "type": "bool",
+          "default": false,
+          "label": "Run autoremove"
+        }
+      ],
+      "timeout_s": 3600
+    },
+    {
+      "guard": false,
+      "drain": false,
+      "id": "vps_reboot_required",
+      "name": "Linux reboot required check",
+      "description": "Reboot flag and running versus installed kernel.",
+      "category": "vps",
+      "os": [
+        "linux"
+      ],
+      "kinds": [
+        "vps",
+        "agent",
+        "ssh"
+      ],
+      "shell": "bash",
+      "file": "linux/vps_reboot_required.sh",
+      "params": []
+    },
+    {
+      "guard": false,
+      "drain": false,
+      "id": "vps_unattended_status",
+      "name": "Unattended upgrades status",
+      "description": "Service state, periodic settings, timers and the last run.",
+      "category": "vps",
+      "os": [
+        "linux"
+      ],
+      "kinds": [
+        "vps",
+        "agent",
+        "ssh"
+      ],
+      "shell": "bash",
+      "file": "linux/vps_unattended_status.sh",
+      "params": []
+    },
+    {
+      "guard": false,
+      "drain": false,
+      "id": "vps_fail2ban_status",
+      "name": "fail2ban status",
+      "description": "Jails and banned counts.",
+      "category": "vps",
+      "os": [
+        "linux"
+      ],
+      "kinds": [
+        "vps",
+        "agent",
+        "ssh"
+      ],
+      "shell": "bash",
+      "file": "linux/vps_fail2ban_status.sh",
+      "params": []
+    },
+    {
+      "guard": false,
+      "drain": false,
+      "id": "vps_listening_ports",
+      "name": "Listening ports report",
+      "description": "Listening sockets and ports reachable from outside.",
+      "category": "vps",
+      "os": [
+        "linux"
+      ],
+      "kinds": [
+        "vps",
+        "agent",
+        "ssh"
+      ],
+      "shell": "bash",
+      "file": "linux/vps_listening_ports.sh",
+      "params": [
+        {
+          "name": "ALLOWED_PORTS",
+          "type": "string",
+          "default": "",
+          "label": "Allowed ports, comma separated"
+        },
+        {
+          "name": "FAIL_ON_UNEXPECTED",
+          "type": "bool",
+          "default": false,
+          "label": "Fail on a port outside the list"
+        }
+      ]
+    },
+    {
+      "guard": false,
+      "drain": false,
+      "id": "vps_cert_expiry",
+      "name": "Certificate expiry",
+      "description": "Expiry of the certificates served by the configured domains (openssl s_client).",
+      "category": "vps",
+      "os": [
+        "linux"
+      ],
+      "kinds": [
+        "vps",
+        "agent",
+        "ssh"
+      ],
+      "shell": "bash",
+      "file": "linux/vps_cert_expiry.sh",
+      "params": [
+        {
+          "name": "DOMAINS",
+          "type": "string",
+          "default": "",
+          "label": "Domains, comma separated (host or host:port)"
+        },
+        {
+          "name": "WARN_DAYS",
+          "type": "int",
+          "default": 21,
+          "label": "Warn when fewer days remain"
+        },
+        {
+          "name": "FAIL_ON_EXPIRY",
+          "type": "bool",
+          "default": true,
+          "label": "Fail when a certificate is at risk"
+        }
+      ]
+    },
+    {
+      "guard": false,
+      "drain": false,
+      "id": "vps_wireguard_status",
+      "name": "WireGuard status",
+      "description": "Interfaces and the last handshake per peer.",
+      "category": "vps",
+      "os": [
+        "linux"
+      ],
+      "kinds": [
+        "vps",
+        "agent",
+        "ssh"
+      ],
+      "shell": "bash",
+      "file": "linux/vps_wireguard_status.sh",
+      "params": [
+        {
+          "name": "STALE_S",
+          "type": "int",
+          "default": 180,
+          "label": "Stale after (seconds)"
+        },
+        {
+          "name": "FAIL_ON_STALE",
+          "type": "bool",
+          "default": false,
+          "label": "Fail when a peer is stale"
+        }
+      ]
+    },
+    {
+      "guard": true,
+      "drain": false,
+      "id": "vps_wireguard_restart",
+      "name": "WireGuard restart",
+      "description": "Restarts wg-quick for an interface and checks it returned.",
+      "category": "vps",
+      "os": [
+        "linux"
+      ],
+      "kinds": [
+        "vps",
+        "agent",
+        "ssh"
+      ],
+      "shell": "bash",
+      "file": "linux/vps_wireguard_restart.sh",
+      "params": [
+        {
+          "name": "DRY_RUN",
+          "type": "bool",
+          "default": false,
+          "label": "Dry run (report only, change nothing)"
+        },
+        {
+          "name": "INTERFACE",
+          "type": "string",
+          "default": "wg0",
+          "label": "Interface"
+        }
+      ]
+    },
+    {
+      "guard": false,
+      "drain": false,
+      "id": "vps_cleanup",
+      "name": "Journal and apt cleanup",
+      "description": "Journal vacuum by age and size, apt autoremove and clean.",
+      "category": "vps",
+      "os": [
+        "linux"
+      ],
+      "kinds": [
+        "vps",
+        "agent",
+        "ssh"
+      ],
+      "shell": "bash",
+      "file": "linux/vps_cleanup.sh",
+      "params": [
+        {
+          "name": "DRY_RUN",
+          "type": "bool",
+          "default": false,
+          "label": "Dry run (report only, change nothing)"
+        },
+        {
+          "name": "JOURNAL_DAYS",
+          "type": "int",
+          "default": 14,
+          "label": "Keep journal days"
+        },
+        {
+          "name": "JOURNAL_MAX_MB",
+          "type": "int",
+          "default": 500,
+          "label": "Journal size cap (MB)"
+        }
+      ]
+    },
+    {
+      "guard": true,
+      "drain": true,
+      "id": "vps_scheduled_reboot",
+      "name": "Linux scheduled reboot",
+      "description": "Schedules shutdown -r after a delay (or cancels it). Run vps_post_reboot_check afterwards.",
+      "category": "vps",
+      "os": [
+        "linux"
+      ],
+      "kinds": [
+        "vps",
+        "agent",
+        "ssh"
+      ],
+      "shell": "bash",
+      "file": "linux/vps_scheduled_reboot.sh",
+      "params": [
+        {
+          "name": "DRY_RUN",
+          "type": "bool",
+          "default": false,
+          "label": "Dry run (report only, change nothing)"
+        },
+        {
+          "name": "DELAY_MIN",
+          "type": "int",
+          "default": 1,
+          "label": "Delay (minutes, 1 or more)"
+        },
+        {
+          "name": "CANCEL",
+          "type": "bool",
+          "default": false,
+          "label": "Cancel a scheduled reboot"
+        }
+      ]
+    },
+    {
+      "guard": false,
+      "drain": false,
+      "id": "vps_post_reboot_check",
+      "name": "Post-reboot check",
+      "description": "Confirms the key services and a WireGuard handshake after a reboot.",
+      "category": "vps",
+      "os": [
+        "linux"
+      ],
+      "kinds": [
+        "vps",
+        "agent",
+        "ssh"
+      ],
+      "shell": "bash",
+      "file": "linux/vps_post_reboot_check.sh",
+      "params": [
+        {
+          "name": "SERVICES",
+          "type": "string",
+          "default": "",
+          "label": "Services that must be active, comma separated"
+        },
+        {
+          "name": "WG_INTERFACE",
+          "type": "string",
+          "default": "",
+          "label": "WireGuard interface (empty = skip)"
+        },
+        {
+          "name": "WAIT_S",
+          "type": "int",
+          "default": 120,
+          "label": "Wait (seconds)"
+        }
+      ]
+    },
+    {
+      "guard": true,
+      "drain": false,
+      "id": "traefik_restart",
+      "name": "Traefik restart",
+      "description": "Restarts the Traefik container or unit and checks it runs.",
+      "category": "vps",
+      "os": [
+        "linux"
+      ],
+      "kinds": [
+        "vps",
+        "agent",
+        "ssh"
+      ],
+      "shell": "bash",
+      "file": "linux/traefik_restart.sh",
+      "params": [
+        {
+          "name": "DRY_RUN",
+          "type": "bool",
+          "default": false,
+          "label": "Dry run (report only, change nothing)"
+        },
+        {
+          "name": "MODE",
+          "type": "enum",
+          "options": [
+            "docker",
+            "systemd"
+          ],
+          "default": "docker",
+          "label": "Mode"
+        },
+        {
+          "name": "NAME",
+          "type": "string",
+          "default": "traefik",
+          "label": "Container or unit name"
+        }
+      ]
+    },
+    {
+      "guard": false,
+      "drain": true,
+      "id": "win_update",
+      "name": "Windows Update",
+      "description": "Searches, downloads and installs updates through the Windows Update API and reports whether a reboot is needed.",
+      "category": "vps",
+      "os": [
+        "windows"
+      ],
+      "kinds": [
+        "vps",
+        "agent"
+      ],
+      "shell": "powershell",
+      "file": "windows/win_update.ps1",
+      "params": [
+        {
+          "name": "DRY_RUN",
+          "type": "bool",
+          "default": false,
+          "label": "Dry run (report only, change nothing)"
+        },
+        {
+          "name": "INSTALL",
+          "type": "bool",
+          "default": true,
+          "label": "Install (off = list only)"
+        },
+        {
+          "name": "INCLUDE_DRIVERS",
+          "type": "bool",
+          "default": false,
+          "label": "Include driver updates"
+        }
+      ],
+      "timeout_s": 7200
+    },
+    {
+      "guard": false,
+      "drain": false,
+      "id": "win_service_health",
+      "name": "Windows service health",
+      "description": "Automatic services that are not running and a list of required services.",
+      "category": "vps",
+      "os": [
+        "windows"
+      ],
+      "kinds": [
+        "vps",
+        "agent"
+      ],
+      "shell": "powershell",
+      "file": "windows/win_service_health.ps1",
+      "params": [
+        {
+          "name": "SERVICES",
+          "type": "string",
+          "default": "",
+          "label": "Required services, comma separated"
+        },
+        {
+          "name": "FAIL_ON_STOPPED",
+          "type": "bool",
+          "default": true,
+          "label": "Fail when a required service is down"
+        }
+      ]
+    },
+    {
+      "guard": false,
+      "drain": false,
+      "id": "win_wireguard_state",
+      "name": "Windows WireGuard state",
+      "description": "Tunnel services and the last handshake per peer.",
+      "category": "vps",
+      "os": [
+        "windows"
+      ],
+      "kinds": [
+        "vps",
+        "agent"
+      ],
+      "shell": "powershell",
+      "file": "windows/win_wireguard_state.ps1",
+      "params": [
+        {
+          "name": "STALE_S",
+          "type": "int",
+          "default": 180,
+          "label": "Stale after (seconds)"
+        },
+        {
+          "name": "FAIL_ON_STALE",
+          "type": "bool",
+          "default": false,
+          "label": "Fail when a tunnel or peer is down"
+        }
+      ]
+    },
+    {
+      "guard": true,
+      "drain": false,
+      "id": "win_dc_health",
+      "name": "Domain controller health",
+      "description": "dcdiag (failures only) and repadmin /replsummary. Guarded because it touches a domain controller.",
+      "category": "vps",
+      "os": [
+        "windows"
+      ],
+      "kinds": [
+        "vps",
+        "agent"
+      ],
+      "shell": "powershell",
+      "file": "windows/win_dc_health.ps1",
+      "params": []
+    },
+    {
+      "guard": false,
+      "drain": false,
+      "id": "win_dns_check",
+      "name": "DNS server check",
+      "description": "DNS service state, zones and test lookups against this server.",
+      "category": "vps",
+      "os": [
+        "windows"
+      ],
+      "kinds": [
+        "vps",
+        "agent"
+      ],
+      "shell": "powershell",
+      "file": "windows/win_dns_check.ps1",
+      "params": [
+        {
+          "name": "NAMES",
+          "type": "string",
+          "default": "",
+          "label": "Names to resolve, comma separated"
+        }
+      ]
+    },
+    {
+      "guard": true,
+      "drain": false,
+      "id": "win_dns_restart",
+      "name": "DNS server restart",
+      "description": "Restarts the DNS Server service and waits for it.",
+      "category": "vps",
+      "os": [
+        "windows"
+      ],
+      "kinds": [
+        "vps",
+        "agent"
+      ],
+      "shell": "powershell",
+      "file": "windows/win_dns_restart.ps1",
+      "params": [
+        {
+          "name": "DRY_RUN",
+          "type": "bool",
+          "default": false,
+          "label": "Dry run (report only, change nothing)"
+        }
+      ]
+    },
+    {
+      "guard": true,
+      "drain": true,
+      "id": "win_reboot",
+      "name": "Windows reboot",
+      "description": "Schedules shutdown /r after a delay. Refuses while a runner job is active.",
+      "category": "vps",
+      "os": [
+        "windows"
+      ],
+      "kinds": [
+        "vps",
+        "agent"
+      ],
+      "shell": "powershell",
+      "file": "windows/win_reboot.ps1",
+      "params": [
+        {
+          "name": "DRY_RUN",
+          "type": "bool",
+          "default": false,
+          "label": "Dry run (report only, change nothing)"
+        },
+        {
+          "name": "DELAY_MIN",
+          "type": "int",
+          "default": 1,
+          "label": "Delay (minutes, 1 or more)"
+        }
+      ]
+    },
+    {
+      "guard": false,
+      "drain": false,
+      "id": "pve_status",
+      "name": "Proxmox status",
+      "description": "Version, pending updates, ZFS pools, ARC size, storage usage.",
+      "category": "proxmox",
+      "os": [
+        "linux"
+      ],
+      "kinds": [
+        "proxmox",
+        "agent",
+        "ssh"
+      ],
+      "shell": "bash",
+      "file": "linux/pve_status.sh",
+      "params": [
+        {
+          "name": "REFRESH",
+          "type": "bool",
+          "default": true,
+          "label": "Refresh package lists first"
+        }
+      ]
+    },
+    {
+      "guard": false,
+      "drain": false,
+      "id": "pve_guests",
+      "name": "Proxmox guests",
+      "description": "qm and pct lists with state, and guests set to start at boot that are down.",
+      "category": "proxmox",
+      "os": [
+        "linux"
+      ],
+      "kinds": [
+        "proxmox",
+        "agent",
+        "ssh"
+      ],
+      "shell": "bash",
+      "file": "linux/pve_guests.sh",
+      "params": []
+    },
+    {
+      "guard": false,
+      "drain": false,
+      "id": "pve_backup_report",
+      "name": "Proxmox backup report",
+      "description": "Latest vzdump tasks (including Proxmox Backup Server jobs) and backup storage.",
+      "category": "proxmox",
+      "os": [
+        "linux"
+      ],
+      "kinds": [
+        "proxmox",
+        "agent",
+        "ssh"
+      ],
+      "shell": "bash",
+      "file": "linux/pve_backup_report.sh",
+      "params": [
+        {
+          "name": "LIMIT",
+          "type": "int",
+          "default": 10,
+          "label": "Tasks to show"
+        }
+      ]
+    },
+    {
+      "guard": false,
+      "drain": false,
+      "id": "pve_snapshot",
+      "name": "Proxmox pre-patch snapshot",
+      "description": "Snapshots running guests (or listed IDs) before patching. Prints the rollback commands, never rolls back.",
+      "category": "proxmox",
+      "os": [
+        "linux"
+      ],
+      "kinds": [
+        "proxmox",
+        "agent",
+        "ssh"
+      ],
+      "shell": "bash",
+      "file": "linux/pve_snapshot.sh",
+      "params": [
+        {
+          "name": "DRY_RUN",
+          "type": "bool",
+          "default": false,
+          "label": "Dry run (report only, change nothing)"
+        },
+        {
+          "name": "VMIDS",
+          "type": "string",
+          "default": "running",
+          "label": "Guest IDs, comma separated, or running"
+        },
+        {
+          "name": "SNAPSHOT_NAME",
+          "type": "string",
+          "default": "prepatch",
+          "label": "Snapshot name"
+        },
+        {
+          "name": "APPEND_DATE",
+          "type": "bool",
+          "default": true,
+          "label": "Append date and time"
+        },
+        {
+          "name": "INCLUDE_RAM",
+          "type": "bool",
+          "default": false,
+          "label": "Include VM memory"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+Software Update Tool
+
+Finding available software
+Software Update found the following new or updated software:
+* Label: Safari18.1SequoiaAuto-18.1
+	Title: Safari, Version: 18.1, Size: 182345KiB, Recommended: YES,
+* Label: XProtectPlistConfigData_10_15-5285
+	Title: XProtectPlistConfigData, Version: 5285, Size: 1024KiB, Recommended: NO,

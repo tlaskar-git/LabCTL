@@ -1,0 +1,18 @@
+## arcstats
+13 1 0x01 123 33456 1234567890 9876543210
+name                            type data
+hits                            4    123456789
+misses                          4    1234567
+c_max                           4    8589934592
+size                            4    4294967296
+## qm_list
+      VMID NAME                 STATUS     MEM(MB)    BOOTDISK(GB) PID
+       100 vm-one               running    4096              32.00 1234
+       101 vm-two               stopped    2048              16.00 0
+## pct_list
+VMID       Status     Lock         Name
+200        running                 ct-one
+201        stopped    backup       ct-two
+## zpool_list
+rpool	1000204886016	200040977203	800163908813	ONLINE
+tank	4000787030016	3600708327014	400078703002	DEGRADED
