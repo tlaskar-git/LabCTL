@@ -1,7 +1,28 @@
 // Cron schedules. next_run is computed with cron-parser in the timezone setting.
+// Also the built-in schedules (/api/builtin-schedules, see src/builtin-schedules.js) and the maintenance guard: a job the
+// scheduler creates for a host in a maintenance window is stored as skipped ("skipped: maintenance").
 const { randomUUID } = require('crypto');
+const { createBuiltins, installMaintenanceGuard } = require('../builtin-schedules');
 module.exports = (app, ctx) => {
   const { db, scheduler } = ctx;
+  installMaintenanceGuard(ctx);
+  const builtins = createBuiltins(ctx);
+  ctx.builtins = builtins;
+  builtins.startTimer();
+  const reply = (res, r) => (r.view ? res.json(r.result ? { ...r.view, result: r.result } : r.view) : res.status(r.status).json({ error: r.error }));
+  app.get('/api/builtin-schedules', (req, res) => res.json(builtins.list()));
+  app.post('/api/builtin-schedules/:key/enable', (req, res) => {
+    // The weekly patching schedule reboots hosts, so it needs its key typed.
+    if (req.params.key === 'patch_weekly' && req.body?.confirm !== 'patch_weekly') {
+      return res.status(400).json({ error: 'Typed confirmation required', confirm_required: true, confirm_word: 'patch_weekly' });
+    }
+    reply(res, builtins.enable(req.params.key, { cron: req.body?.cron }));
+  });
+  app.post('/api/builtin-schedules/:key/disable', (req, res) => reply(res, builtins.disable(req.params.key)));
+  app.put('/api/builtin-schedules/:key', (req, res) => reply(res, builtins.update(req.params.key, { cron: req.body?.cron })));
+  app.post('/api/builtin-schedules/:key/run', async (req, res, next) => {
+    try { reply(res, await builtins.runNow(req.params.key, req.user?.username)); } catch (err) { next(err); }
+  });
   app.get('/api/schedules', (req, res) => {
     res.json(db.prepare(`SELECT s.*, COALESCE(h.hostname, s.host_id) AS hostname FROM schedules s
       LEFT JOIN hosts h ON h.id = s.host_id ORDER BY s.created_at`).all().map(s => ({ ...s, enabled: !!s.enabled })));

@@ -2,6 +2,52 @@ import { useState, useEffect } from 'preact/hooks';
 import { api } from '../api.js';
 import { html, Icons, Modal } from '../ui.js';
 import { JOB_TYPES } from '../job-types.js';
+import { TypedConfirm } from './patching.js';
+
+const when = iso => (iso ? new Date(iso).toLocaleString() : '-');
+
+// ── Built-in schedules: one click on, time editable, last and next run ─────
+function BuiltinSchedules({ addToast }) {
+  const [list, setList] = useState([]);
+  const [ask, setAsk] = useState(null);
+  const [draft, setDraft] = useState({}); // key -> cron being edited
+
+  const load = () => api('/api/builtin-schedules').then(setList).catch(e => addToast(e.message, 'error'));
+  useEffect(() => { load(); }, []);
+
+  const call = async (key, action, body, method = 'POST') => {
+    try {
+      const r = await api(`/api/builtin-schedules/${key}${action ? `/${action}` : ''}`, { method, body });
+      if (r.result) addToast(`${r.result.status}: ${r.result.detail}`, r.result.status === 'error' ? 'error' : 'success');
+      setDraft(d => ({ ...d, [key]: undefined }));
+      load();
+    } catch (e) { addToast(e.message, 'error'); }
+  };
+  const toggle = s => (s.enabled ? call(s.key, 'disable', {})
+    : s.guarded ? setAsk({ key: s.key, name: s.name, cron: draft[s.key] || s.cron }) : call(s.key, 'enable', { cron: draft[s.key] || s.cron }));
+
+  return html`<div class="card" style=${{ marginBottom: 20 }}>
+    <div class="card-header"><div class="card-title">Built-in schedules</div></div>
+    <div class="page-desc" style=${{ marginBottom: 10 }}>Switch one on and it runs by itself. Hosts in a maintenance window are skipped. Times use the server time zone.</div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>On</th><th>Schedule</th><th>Cron</th><th>Last run</th><th>Next run</th><th></th></tr></thead>
+      <tbody>${list.map(s => html`<tr key=${s.key}>
+        <td><div role="switch" aria-checked=${s.enabled} aria-label=${`Enable ${s.name}`} tabindex="0" class=${`toggle ${s.enabled ? 'active' : ''}`} onClick=${() => toggle(s)} onKeyDown=${e => e.key === 'Enter' && toggle(s)}/></td>
+        <td><b>${s.name}</b><div class="page-desc" style=${{ fontSize: 12, maxWidth: 520 }}>${s.description}</div>
+          ${s.key === 'cert_expiry' && !s.domains && html`<div class="page-desc" style=${{ color: 'var(--yellow)', fontSize: 12 }}>Set cert_domains under Settings first.</div>`}</td>
+        <td><div style=${{ display: 'flex', gap: 6 }}>
+          <input class="input" aria-label=${`Cron for ${s.name}`} style=${{ width: 130, fontFamily: 'monospace', fontSize: 12 }} value=${draft[s.key] ?? s.cron} onInput=${e => setDraft(d => ({ ...d, [s.key]: e.target.value }))}/>
+          ${draft[s.key] !== undefined && draft[s.key] !== s.cron && html`<button class="btn btn-sm" onClick=${() => call(s.key, '', { cron: draft[s.key] }, 'PUT')}>Save</button>`}
+        </div></td>
+        <td style=${{ fontSize: 12 }}>${when(s.last_run)}${s.last_status ? html`<div class=${`badge badge-${s.last_status === 'ok' ? 'completed' : s.last_status === 'error' ? 'failed' : 'pending'}`} title=${s.last_detail || ''}>${s.last_status}</div>` : ''}</td>
+        <td style=${{ fontSize: 12 }}>${s.enabled ? when(s.next_run) : '-'}</td>
+        <td>${s.key !== 'patch_weekly' && html`<button class="btn btn-sm" onClick=${() => call(s.key, 'run', {})}><${Icons.Play}/> Run now</button>`}</td>
+      </tr>`)}</tbody></table></div>
+    ${ask && html`<${TypedConfirm} title="Enable weekly patching" word="patch_weekly"
+      action="This creates three ring policies and enables them. They can reboot hosts. Hosts without ring tags are not touched."
+      onClose=${() => setAsk(null)} onConfirm=${confirm => { call(ask.key, 'enable', { cron: ask.cron, confirm }); setAsk(null); }}/>`}
+  </div>`;
+}
 
 // ── Schedules Page ────────────────────────────────────────
 export default function SchedulesPage({ hosts, addToast }) {
@@ -44,6 +90,8 @@ export default function SchedulesPage({ hosts, addToast }) {
         </div>
         <button class="btn btn-primary" onClick=${() => setShowAdd(true)}>+ New Schedule</button>
       </div>
+
+      <${BuiltinSchedules} addToast=${addToast}/>
 
       <div class="table-wrap">
         <table>
