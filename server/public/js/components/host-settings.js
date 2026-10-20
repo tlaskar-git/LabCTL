@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'preact/hooks';
 import { api } from '../api.js';
 import { html, Modal } from '../ui.js';
+import { OsIcon, hostName } from './host-name.js';
+import { iconLabel } from './os-icon.js';
+import { IconPicker } from './icon-picker.js';
 
 const field = (label, input) => html`<div class="form-group"><label class="form-label">${label}</label>${input}</div>`;
 
@@ -11,8 +14,9 @@ export function HostSettings({ host, groups, onClose, onSaved, addToast, isAdmin
     name: host.hostname || '', kind: host.kind, tags: host.tags.map(t => t.name).join(', '), groups: host.groups.map(g => g.id),
     notes: host.notes, provider: host.provider, region: host.region, plan: host.plan, runner_folders: host.runner_folders.join('\n'),
     address: host.ssh?.address || '', port: host.ssh?.port || 22, username: host.ssh?.username || '',
-    credential_id: host.ssh?.credential_id || '', os: host.os || 'linux'
+    credential_id: host.ssh?.credential_id || '', os: host.os || 'linux', display_name: host.display_name || '', icon: host.icon || null
   });
+  const [picking, setPicking] = useState(false);
   const [creds, setCreds] = useState([]);
   const [busy, setBusy] = useState(false);
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
@@ -26,7 +30,8 @@ export function HostSettings({ host, groups, onClose, onSaved, addToast, isAdmin
       const body = {
         tags: f.tags.split(',').map(s => s.trim()).filter(Boolean), groups: f.groups, notes: f.notes,
         provider: f.provider, region: f.region, plan: f.plan,
-        runner_folders: f.runner_folders.split('\n').map(s => s.trim()).filter(Boolean), kind: f.kind
+        runner_folders: f.runner_folders.split('\n').map(s => s.trim()).filter(Boolean), kind: f.kind,
+        display_name: f.display_name.trim() || null, icon: f.icon
       };
       if (isSsh) {
         Object.assign(body, { name: f.name, os: f.os, ssh: { address: f.address, port: Number(f.port), username: f.username,
@@ -40,10 +45,26 @@ export function HostSettings({ host, groups, onClose, onSaved, addToast, isAdmin
 
   const toggleGroup = id => set('groups', f.groups.includes(id) ? f.groups.filter(g => g !== id) : [...f.groups, id]);
 
-  return html`<${Modal} title=${`Settings: ${host.hostname || host.id}`} onClose=${onClose}>
+  return html`<${Modal} title=${`Settings: ${hostName(host)}`} onClose=${onClose}>
+    <div class="form-row" style=${{ alignItems: 'flex-end' }}>
+      <div class="form-group" style=${{ flex: 0 }}>
+        <label class="form-label">Icon</label>
+        <button type="button" class="btn icon-pick-btn big" aria-label=${`Icon: ${f.icon ? iconLabel(f.icon) : 'automatic'}. Change`} onClick=${() => setPicking(true)}>
+          <${OsIcon} id=${f.icon || host.icon_auto} size=${28}/>
+        </button>
+      </div>
+      <div class="form-group" style=${{ flex: 1 }}>
+        <label class="form-label" for="host-display-name">Display name</label>
+        <input id="host-display-name" class="input" maxLength="64" value=${f.display_name} placeholder=${host.hostname || ''}
+          onInput=${e => set('display_name', e.target.value)}/>
+        <div class="page-desc">Hostname <span class="mono">${host.hostname || host.id}</span> stays the same. Leave empty to show it.</div>
+      </div>
+    </div>
+    ${picking && html`<${IconPicker} title="Host icon" current=${f.icon} auto=${host.icon_auto}
+      onPick=${icon => { set('icon', icon); setPicking(false); }} onClose=${() => setPicking(false)}/>`}
     ${isSsh && html`
       <div class="form-row">
-        ${field('Name', html`<input ...${text('name')}/>`)}
+        ${field('Hostname', html`<input ...${text('name')}/>`)}
         ${field('OS', html`<select class="select" value=${f.os} onChange=${e => set('os', e.target.value)}>
           ${['linux', 'windows', 'darwin'].map(o => html`<option key=${o} value=${o}>${o}</option>`)}</select>`)}
       </div>

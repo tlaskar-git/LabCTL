@@ -15,6 +15,8 @@ uPlot is the one edit: the repo URL in the banner comment of the script has its 
 forbids http(s) URLs in vendored scripts passes. The code is untouched. `js/components/chart.js` loads the script and the
 stylesheet on first use and reads the global `uPlot`.
 
+Host icons (simple-icons 16.34.0, CC0, plus a few drawn here) are in `icons/`, see `icons/README.md`.
+
 Licence texts sit next to each library (`LICENSE`). The bare names `preact`, `preact/hooks` and `htm`
 resolve through the import map in `index.html`.
 

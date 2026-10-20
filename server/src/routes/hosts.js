@@ -3,20 +3,24 @@ const { randomUUID } = require('crypto');
 const ops = require('../hostops');
 const { createSsh } = require('../ssh');
 const { buildView } = require('../host-view');
+const { ensureDisplayColumns, cleanDisplayName, cleanIcon, displayFields } = require('../host-display');
 
 const ADDRESS = /^[A-Za-z0-9._:%\[\]-]{1,253}$/;
 const str = (v, max) => String(v ?? '').trim().slice(0, max);
 
 module.exports = (app, ctx) => {
   const { db, agents } = ctx;
+  ensureDisplayColumns(db);
   const admin = ctx.requireRole('admin');
   const hostRow = id => db.prepare('SELECT * FROM hosts WHERE id = ?').get(id);
   const isAdmin = req => ctx.auth.rank(req.user?.role) >= ctx.auth.rank('admin');
   // `view` is the normalised host data every display reads (src/host-view.js); the raw fields stay for compatibility.
   const withView = (row, latest, full) => {
     const h = ops.hostView(ctx, row, latest);
-    return { ...h, view: buildView(row, { full, online: h.online }) };
+    return { ...h, ...displayFields(row, h.tags), view: buildView(row, { full, online: h.online }) };
   };
+  // Search also matches the display name. shortcut: hostops.matches does not know display_name, so it is checked here.
+  const matches = (h, q) => ops.matches(h, q) || (!!q.q && ops.matches(h, { ...q, q: '' }) && h.name.toLowerCase().includes(String(q.q).toLowerCase()));
   const view = row => withView(row, ops.latestAgentVersion(db), false);
 
   // Agentless hosts: jobs go over ssh through the dispatcher hook, state is polled every 60 s.
@@ -78,8 +82,8 @@ module.exports = (app, ctx) => {
 
   app.get('/api/hosts', (req, res) => {
     const latest = ops.latestAgentVersion(db);
-    res.json(db.prepare('SELECT * FROM hosts ORDER BY hostname COLLATE NOCASE').all()
-      .map(r => withView(r, latest, false)).filter(h => ops.matches(h, req.query)));
+    res.json(db.prepare("SELECT * FROM hosts ORDER BY COALESCE(NULLIF(display_name, ''), hostname) COLLATE NOCASE").all()
+      .map(r => withView(r, latest, false)).filter(h => matches(h, req.query)));
   });
   app.get('/api/hosts/:id', (req, res) => {
     const h = hostRow(req.params.id);
@@ -127,6 +131,12 @@ module.exports = (app, ctx) => {
     }
     const data = ops.getData(db, h.id);
     for (const [k, max] of [['notes', 2000], ['provider', 100], ['region', 100], ['plan', 100]]) if (b[k] !== undefined) data[k] = str(b[k], max);
+    for (const [k, clean] of [['display_name', cleanDisplayName], ['icon', cleanIcon]]) {
+      if (b[k] === undefined) continue;
+      const r = clean(b[k]);
+      if (r.error) return res.status(400).json({ error: r.error });
+      if (r.value !== h[k]) cols[k] = r.value;
+    }
     if (b.kind !== undefined) {
       if (!ops.KINDS.includes(b.kind) || (b.kind === 'ssh') !== isSsh) return res.status(400).json({ error: 'invalid kind (ssh and agent kinds cannot be switched)' });
       cols.kind = b.kind;
@@ -165,10 +175,18 @@ module.exports = (app, ctx) => {
         ops.setGroups(db, h.id, [...(b.groups ?? existing), ...(b.add_groups || [])]);
       }
     })();
+    if ('display_name' in cols) ctx.audit(req.user.username, 'host.rename', h.id, { hostname: h.hostname, from: h.display_name, to: cols.display_name });
+    if ('icon' in cols) ctx.audit(req.user.username, 'host.icon', h.id, { from: h.icon, to: cols.icon });
     res.json(view(hostRow(h.id)));
   });
 
-  app.delete('/api/hosts/:id', admin, ctx.requireConfirm(req => {
+  // The dialog asks for the name shown on screen: the display name is accepted as well as the real hostname.
+  const displayConfirm = (req, res, next) => {
+    const h = hostRow(req.params.id);
+    if (h?.display_name && req.body?.confirm === h.display_name) req.body.confirm = h.hostname || h.id;
+    next();
+  };
+  app.delete('/api/hosts/:id', admin, displayConfirm, ctx.requireConfirm(req => {
     const h = hostRow(req.params.id);
     return h ? (h.hostname || h.id) : null;
   }), async (req, res, next) => {
@@ -234,26 +252,37 @@ module.exports = (app, ctx) => {
   });
 
   app.get('/api/groups', (req, res) => {
-    res.json(db.prepare('SELECT id, name, color, ord AS "order", created_at FROM groups ORDER BY ord').all());
+    res.json(db.prepare('SELECT id, name, color, icon, ord AS "order", created_at FROM groups ORDER BY ord').all());
   });
   app.post('/api/groups', (req, res) => {
     const { name, color } = req.body || {};
     if (!name) return res.status(400).json({ error: 'name required' });
-    const g = { id: randomUUID(), name: String(name), color: color || '#3b82f6',
+    const icon = cleanIcon(req.body.icon);
+    if (icon.error) return res.status(400).json({ error: icon.error });
+    const g = { id: randomUUID(), name: String(name), color: color || '#3b82f6', icon: icon.value,
       order: db.prepare('SELECT COUNT(*) AS n FROM groups').get().n, created_at: new Date().toISOString() };
-    db.prepare('INSERT INTO groups (id, name, color, ord, created_at) VALUES (?, ?, ?, ?, ?)').run(g.id, g.name, g.color, g.order, g.created_at);
+    db.prepare('INSERT INTO groups (id, name, color, icon, ord, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(g.id, g.name, g.color, g.icon, g.order, g.created_at);
     res.json(g);
   });
-  app.put('/api/groups/:id', (req, res) => {
-    const g = db.prepare('SELECT id, name, color, ord AS "order", created_at FROM groups WHERE id = ?').get(req.params.id);
+  // PUT and PATCH both change only the fields sent.
+  app.put('/api/groups/:id', (req, res) => updateGroup(req, res));
+  app.patch('/api/groups/:id', (req, res) => updateGroup(req, res));
+  function updateGroup(req, res) {
+    const g = db.prepare('SELECT id, name, color, icon, ord AS "order", created_at FROM groups WHERE id = ?').get(req.params.id);
     if (!g) return res.status(404).json({ error: 'Not found' });
     const { name, color, order } = req.body || {};
+    const icon = cleanIcon(req.body?.icon);
+    if (req.body?.icon !== undefined && icon.error) return res.status(400).json({ error: icon.error });
     if (name !== undefined) g.name = String(name);
     if (color !== undefined) g.color = color;
     if (order !== undefined) g.order = Number(order) || 0;
-    db.prepare('UPDATE groups SET name = ?, color = ?, ord = ? WHERE id = ?').run(g.name, g.color, g.order, g.id);
+    if (req.body?.icon !== undefined && icon.value !== g.icon) {
+      ctx.audit(req.user.username, 'group.icon', null, { group: g.id, name: g.name, from: g.icon, to: icon.value });
+      g.icon = icon.value;
+    }
+    db.prepare('UPDATE groups SET name = ?, color = ?, icon = ?, ord = ? WHERE id = ?').run(g.name, g.color, g.icon, g.order, g.id);
     res.json(g);
-  });
+  }
   app.delete('/api/groups/:id', (req, res) => {
     db.transaction(() => {
       db.prepare('DELETE FROM groups WHERE id = ?').run(req.params.id);

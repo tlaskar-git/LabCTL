@@ -7,11 +7,36 @@ import { HostFilters, EMPTY_FILTERS } from '../components/host-filters.js';
 import { RemoveDialog } from '../components/host-remove-dialog.js';
 import { HostSettings } from '../components/host-settings.js';
 import { AddSshHost } from '../components/host-add-ssh.js';
-import { DeployActions } from '../components/deploy-actions.js';
+import { DeployActions, RedeployDialog } from '../components/deploy-actions.js';
 import { filtersFromQuery, fleetHostIds, FLEET_FILTERS } from '../components/host-query.js';
 import { MiniBar, has, orDash, usedOf, uptimeText } from '../components/host-view.js';
+import { HostCard, isOnline } from '../components/host-card.js';
+import { OsIcon, hostName } from '../components/host-name.js';
+import { IconPicker } from '../components/icon-picker.js';
 
 const seen = iso => (iso ? iso.slice(0, 19).replace('T', ' ') : '—');
+// Per-viewer view choices. Storage can be missing or blocked (private window): the page works without it.
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* storage blocked */ } }
+};
+const VIEW_KEY = 'labctl.hosts.view';
+const COLLAPSED_KEY = 'labctl.hosts.collapsed';
+const UNGROUPED = '_ungrouped';
+const Chevron = () => html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>`;
+const Grid = () => html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5"/></svg>`;
+
+// Sections in group order, then Ungrouped. A host in several groups sits under its first one (groups come in group order).
+function sectionsOf(rows, groups) {
+  const by = new Map(groups.map(g => [g.id, []]));
+  const loose = [];
+  for (const h of rows) {
+    const g = (h.groups || []).find(x => by.has(x.id));
+    if (g) by.get(g.id).push(h); else loose.push(h);
+  }
+  return [...groups.map(g => ({ id: g.id, name: g.name, color: g.color, icon: g.icon, hosts: by.get(g.id) })),
+    { id: UNGROUPED, name: 'Ungrouped', color: null, icon: null, hosts: loose }].filter(s => s.hosts.length);
+}
 // CPU, RAM, fullest disk and uptime from host.view. Offline hosts show their last reported values, dimmed.
 function usageCells(h) {
   const v = h.view || {};
@@ -47,6 +72,14 @@ export default function HostsPage({ hosts, addToast, currentUser, query }) {
   const [newGroupColor, setNewGroupColor] = useState('#3b82f6');
   const [bulkTag, setBulkTag] = useState('');
   const [bulkGroup, setBulkGroup] = useState('');
+  const [newGroupIcon, setNewGroupIcon] = useState(null);
+  const [iconFor, setIconFor] = useState(null); // 'new' or a group id while the group icon picker is open
+  const [redeploying, setRedeploying] = useState(null);
+  const [view, setView] = useState(() => (store.get(VIEW_KEY, 'cards') === 'table' ? 'table' : 'cards'));
+  const [collapsed, setCollapsed] = useState(() => new Set(store.get(COLLAPSED_KEY, [])));
+  const pickView = v => { setView(v); store.set(VIEW_KEY, v); };
+  const saveCollapsed = s => { setCollapsed(s); store.set(COLLAPSED_KEY, [...s]); };
+  const toggleSection = id => { const n = new Set(collapsed); if (n.has(id)) n.delete(id); else n.add(id); saveCollapsed(n); };
 
   const loadRows = async () => {
     const params = new URLSearchParams(Object.entries(filters).filter(([, v]) => v));
@@ -77,8 +110,9 @@ export default function HostsPage({ hosts, addToast, currentUser, query }) {
 
   const addGroup = async () => {
     if (!newGroupName.trim()) return;
-    await api('/api/groups', { method: 'POST', body: { name: newGroupName, color: newGroupColor }});
+    await api('/api/groups', { method: 'POST', body: { name: newGroupName, color: newGroupColor, icon: newGroupIcon }});
     setNewGroupName('');
+    setNewGroupIcon(null);
     addToast('Group created');
     refresh();
   };
@@ -87,12 +121,24 @@ export default function HostsPage({ hosts, addToast, currentUser, query }) {
     addToast('Group deleted');
     refresh();
   };
+  const setGroupIcon = async (id, icon) => {
+    if (id === 'new') { setNewGroupIcon(icon); setIconFor(null); return; }
+    try {
+      await api(`/api/groups/${encodeURIComponent(id)}`, { method: 'PATCH', body: { icon } });
+      addToast('Group icon saved');
+      setIconFor(null);
+      refresh();
+    } catch (e) { addToast(e.message, 'error'); }
+  };
   const deleteTag = async (id) => {
     await api(`/api/tags/${id}`, { method: 'DELETE' });
     addToast('Tag deleted');
     refresh();
   };
 
+  const sections = sectionsOf(rows, groups);
+  // The window reads the latest row, so a rename or icon change shows at once.
+  const openHost = selectedHost && (rows.find(r => r.id === selectedHost.id) || selectedHost);
   const picked = rows.filter(h => selected.has(h.id));
   const allOn = rows.length > 0 && picked.length === rows.length;
   const toggle = id => setSelected(s => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
@@ -113,14 +159,21 @@ export default function HostsPage({ hosts, addToast, currentUser, query }) {
     ? html`<span class="page-desc">agentless</span>`
     : html`<span class="mono">${h.agent_version || '—'}</span>${h.agent_outdated && html` <span class="badge badge-pending" title=${`Latest known: ${h.latest_agent_version}`}>outdated</span>`}`);
 
-  const renderRow = (h) => html`<tr key=${h.id} style=${{ cursor: 'pointer' }} onClick=${() => setSelectedHost(h)}>
+  const renderRow = (h) => html`<tr key=${h.id} class="host-row" tabIndex="0" aria-label=${`Open ${hostName(h)}`} onClick=${() => setSelectedHost(h)}
+    onKeyDown=${e => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); setSelectedHost(h); } }}>
     <td onClick=${e => e.stopPropagation()}>
-      <input type="checkbox" checked=${selected.has(h.id)} onChange=${() => toggle(h.id)} aria-label=${`Select ${h.hostname || h.id}`}/>
+      <input type="checkbox" checked=${selected.has(h.id)} onChange=${() => toggle(h.id)} aria-label=${`Select ${hostName(h)}`}/>
     </td>
     <td><${StatusBadge} status=${h.online || h.status === 'online' ? 'online' : 'offline'}/></td>
     <td>
-      <strong>${h.hostname || h.id}</strong>
-      ${(h.provider || h.region || h.plan) && html`<div class="page-desc">${[h.provider, h.region, h.plan].filter(Boolean).join(' / ')}</div>`}
+      <div style=${{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <span class=${`row-icon ${isOnline(h) ? '' : 'is-off'}`}><${OsIcon} host=${h} size=${20}/></span>
+        <div style=${{ minWidth: 0 }}>
+          <strong>${hostName(h)}</strong>
+          ${h.display_name && html`<div class="page-desc mono">${h.hostname}</div>`}
+          ${(h.provider || h.region || h.plan) && html`<div class="page-desc">${[h.provider, h.region, h.plan].filter(Boolean).join(' / ')}</div>`}
+        </div>
+      </div>
     </td>
     <td>${h.kind}</td>
     <td>${h.os || '—'}</td>
@@ -151,11 +204,21 @@ export default function HostsPage({ hosts, addToast, currentUser, query }) {
         </div>
       </div>
 
-      <${HostFilters} filters=${filters} onChange=${f => { setFilters(f); if (!Object.values(f).some(Boolean)) setFleet([]); }} options=${{ os: osOptions, groups, tags }}/>
+      <${HostFilters} filters=${filters} onChange=${f => { setFilters(f); if (!Object.values(f).some(Boolean)) setFleet([]); }} options=${{ os: osOptions, groups, tags }}>
+        <label class="checkbox-row select-all" title="Select every host shown">
+          <input type="checkbox" aria-label="Select all hosts shown" checked=${allOn} onChange=${toggleAll}/> All
+        </label>
+        ${sections.length > 1 && html`<button class="btn btn-sm" onClick=${() => saveCollapsed(collapsed.size ? new Set() : new Set(sections.map(s => s.id)))}>
+          ${collapsed.size ? 'Expand all' : 'Collapse all'}</button>`}
+        <div class="view-seg" role="group" aria-label="View">
+          <button class=${view === 'cards' ? 'on' : ''} aria-pressed=${view === 'cards'} title="Cards" aria-label="Card view" onClick=${() => pickView('cards')}><${Grid}/></button>
+          <button class=${view === 'table' ? 'on' : ''} aria-pressed=${view === 'table'} title="Table" aria-label="Table view" onClick=${() => pickView('table')}><${Icons.List}/></button>
+        </div>
+      <//>
       ${fleet.length > 0 && html`<div style=${{ marginBottom: 12 }}>${fleet.map(k => html`<span key=${k} class="badge badge-pending" style=${{ marginRight: 8 }}>${FLEET_FILTERS[k].label}</span>`)}
         <button class="btn btn-sm" onClick=${() => setFleet([])}>Clear fleet filter</button></div>`}
 
-      ${picked.length > 0 && html`<div class="card" style=${{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', padding: '10px 14px' }}>
+      ${picked.length > 0 && html`<div class="card bulk-bar">
         <strong>${picked.length} selected</strong>
         ${canEdit && html`
           <input class="input" style=${{ maxWidth: 160 }} placeholder="Tag name" aria-label="Tag to add" value=${bulkTag} onInput=${e => setBulkTag(e.target.value)}/>
@@ -169,20 +232,45 @@ export default function HostsPage({ hosts, addToast, currentUser, query }) {
         <button class="btn btn-sm" onClick=${() => setSelected(new Set())}>Clear selection</button>
       </div>`}
 
-      <div class="card">
-        <div class="table-wrap">
-          <table>
-            <thead><tr>
-              <th style=${{ width: 28 }}><input type="checkbox" aria-label="Select all hosts" checked=${allOn} onChange=${toggleAll}/></th>
-              <th>Status</th><th>Host</th><th>Kind</th><th>OS</th><th>Address</th><th>CPU</th><th>RAM</th><th>Disk</th><th>Uptime</th><th>Agent version</th><th>Tags</th><th>Groups</th><th>Last seen</th><th></th>
-            </tr></thead>
-            <tbody>${rows.map(renderRow)}</tbody>
-          </table>
-        </div>
-        ${rows.length === 0 && html`<div style=${{ textAlign: 'center', color: 'var(--text-dim)', padding: 30 }}>
-          ${hosts.length === 0 ? 'No hosts registered. Deploy the agent on your machines or add an SSH host.' : 'No host matches the filters.'}
-        </div>`}
-      </div>
+      ${sections.map(s => {
+        const on = s.hosts.filter(isOnline).length;
+        const open = !collapsed.has(s.id);
+        const allSel = s.hosts.every(h => selected.has(h.id));
+        const selSection = () => setSelected(prev => { const n = new Set(prev); s.hosts.forEach(h => (allSel ? n.delete(h.id) : n.add(h.id))); return n; });
+        return html`<section key=${s.id} class="hsec">
+          <div class="hsec-head">
+            <button class="hsec-toggle" aria-expanded=${open} aria-controls=${`hsec-${s.id}`} onClick=${() => toggleSection(s.id)}>
+              <span class=${`hsec-chev ${open ? '' : 'shut'}`}><${Chevron}/></span>
+              <span class="hsec-icon" style=${{ color: s.color || 'var(--text-dim)' }}>
+                ${s.icon ? html`<${OsIcon} id=${s.icon} size=${18}/>` : html`<span class="hsec-swatch" style=${{ background: s.color || 'var(--border)' }}/>`}
+              </span>
+              <span class="hsec-name">${s.name}</span>
+              <span class="hsec-count">${s.hosts.length}</span>
+            </button>
+            <span class="hsec-summary">
+              <span><span class="status-dot on"/> ${on} online</span>
+              ${s.hosts.length - on > 0 && html`<span><span class="status-dot off"/> ${s.hosts.length - on} offline</span>`}
+            </span>
+            <label class="checkbox-row hsec-select"><input type="checkbox" checked=${allSel} onChange=${selSection} aria-label=${`Select all in ${s.name}`}/></label>
+          </div>
+          ${open && (view === 'cards'
+            ? html`<div class="hgrid" id=${`hsec-${s.id}`}>${s.hosts.map(h => html`<${HostCard} key=${h.id} host=${h} selected=${selected.has(h.id)}
+                onToggle=${() => toggle(h.id)} onOpen=${() => setSelectedHost(h)} canEdit=${canEdit} isAdmin=${isAdmin} addToast=${addToast}
+                onSettings=${() => setSettingsHost(h)} onRedeploy=${() => setRedeploying(h)} onRemove=${() => setRemoving([h])} onChanged=${refresh}/>`)}</div>`
+            : html`<div class="card hsec-table" id=${`hsec-${s.id}`}><div class="table-wrap"><table>
+                <thead><tr>
+                  <th style=${{ width: 28 }}><span class="sr-only">Select</span></th>
+                  <th>Status</th><th>Host</th><th>Kind</th><th>OS</th><th>Address</th><th>CPU</th><th>RAM</th><th>Disk</th><th>Uptime</th><th>Agent version</th><th>Tags</th><th>Groups</th><th>Last seen</th><th><span class="sr-only">Actions</span></th>
+                </tr></thead>
+                <tbody>${s.hosts.map(renderRow)}</tbody>
+              </table></div></div>`)}
+        </section>`;
+      })}
+      ${rows.length === 0 && html`<div class="card empty-state">
+        <${Icons.Server}/>
+        <div class="empty-state-title">${hosts.length === 0 ? 'No hosts yet' : 'No host matches the filters'}</div>
+        <div class="empty-state-desc">${hosts.length === 0 ? 'Deploy the agent on your machines or add an SSH host.' : 'Change the search or clear the filters.'}</div>
+      </div>`}
 
       
       ${showManageGroups && (
@@ -200,12 +288,18 @@ export default function HostsPage({ hosts, addToast, currentUser, query }) {
                 <label class="form-label">Color</label>
                 <div style=${{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                   ${GROUP_COLORS.map(c => (
-                    html`<div key=${c} onClick=${() => setNewGroupColor(c)} style=${{
-                      width: 24, height: 24, borderRadius: 4, background: c, cursor: 'pointer',
-                      border: newGroupColor === c ? '2px solid white' : '2px solid transparent'
+                    html`<button key=${c} type="button" aria-label=${`Colour ${c}`} aria-pressed=${newGroupColor === c} onClick=${() => setNewGroupColor(c)} style=${{
+                      width: 24, height: 24, borderRadius: 4, background: c, cursor: 'pointer', padding: 0,
+                      border: newGroupColor === c ? '2px solid var(--text-primary)' : '2px solid transparent'
                     }}/>`
                   ))}
                 </div>
+              </div>
+              <div class="form-group" style=${{ flex: 0 }}>
+                <label class="form-label">Icon</label>
+                <button class="btn icon-pick-btn" aria-label="Choose an icon for the new group" onClick=${() => setIconFor('new')}>
+                  ${newGroupIcon ? html`<${OsIcon} id=${newGroupIcon} size=${18}/>` : 'None'}
+                </button>
               </div>
               <div class="form-group" style=${{ flex: 0, alignSelf: 'flex-end' }}>
                 <button class="btn btn-primary" onClick=${addGroup}>Add</button>
@@ -216,11 +310,14 @@ export default function HostsPage({ hosts, addToast, currentUser, query }) {
           ${groups.length > 0 && (
             html`<div class="table-wrap">
               <table>
-                <thead><tr><th>Color</th><th>Name</th><th>Hosts</th><th>Actions</th></tr></thead>
+                <thead><tr><th>Color</th><th>Icon</th><th>Name</th><th>Hosts</th><th>Actions</th></tr></thead>
                 <tbody>
                   ${groups.map(g => (
                     html`<tr key=${g.id}>
                       <td><span style=${{ display: 'inline-block', width: 16, height: 16, borderRadius: 3, background: g.color }}/></td>
+                      <td><button class="btn btn-sm icon-pick-btn" style=${{ color: g.color }} aria-label=${`Change the icon of ${g.name}`} onClick=${() => setIconFor(g.id)}>
+                        ${g.icon ? html`<${OsIcon} id=${g.icon} size=${18}/>` : html`<span style=${{ color: 'var(--text-dim)' }}>None</span>`}
+                      </button></td>
                       <td style=${{ fontWeight: 600 }}>${g.name}</td>
                       <td>${hosts.filter(h => (h.groups || []).some(x => x.id === g.id)).length}</td>
                       <td>
@@ -257,9 +354,17 @@ export default function HostsPage({ hosts, addToast, currentUser, query }) {
       ${addingSsh && html`<${AddSshHost} isAdmin=${isAdmin} addToast=${addToast}
         onClose=${() => setAddingSsh(false)} onCreated=${() => { setAddingSsh(false); refresh(); }}/>`}
 
-      ${selectedHost && (
-        html`<${HostDetailModal} host=${selectedHost} onClose=${() => setSelectedHost(null)} addToast=${addToast}/>`
+      ${openHost && (
+        html`<${HostDetailModal} host=${openHost} onClose=${() => setSelectedHost(null)} addToast=${addToast}
+          isAdmin=${isAdmin} canEdit=${canEdit} onChanged=${refresh} onSettings=${() => setSettingsHost(openHost)}/>`
       )}
+
+      ${redeploying && html`<${RedeployDialog} host=${redeploying} isAdmin=${isAdmin} addToast=${addToast}
+        onClose=${() => setRedeploying(null)} onDone=${refresh}/>`}
+
+      ${iconFor && html`<${IconPicker} title=${iconFor === 'new' ? 'Icon for the new group' : `Icon for ${groups.find(g => g.id === iconFor)?.name || 'group'}`}
+        current=${iconFor === 'new' ? newGroupIcon : groups.find(g => g.id === iconFor)?.icon || null}
+        onPick=${icon => setGroupIcon(iconFor, icon)} onClose=${() => setIconFor(null)}/>`}
     </div>`
   );
 }
