@@ -108,29 +108,34 @@ function Find-Python {
     return $best
 }
 
-function Install-Python {
-    if (Get-Command winget.exe -ErrorAction SilentlyContinue) {
-        Write-Log 'Installing Python with winget'
-        $r = Invoke-Native 'winget.exe' @('install', '--id', 'Python.Python.3.12', '-e', '--silent', '--scope', 'machine',
-            '--accept-package-agreements', '--accept-source-agreements')
-        Write-LogFile ("winget exit code {0}" -f $r.ExitCode)
-        if (Find-Python) { return }
-        Write-Log 'winget did not give a usable Python. Trying the python.org installer.' 'Yellow'
+# Runs an installer with a hard time limit and kills it (and its children) when it does not finish.
+function Invoke-InstallerWithLimit {
+    param([string]$File, [string[]]$Arguments, [int]$Seconds = 600)
+    $p = Start-Process -FilePath $File -ArgumentList $Arguments -PassThru -WindowStyle Hidden
+    if (-not $p.WaitForExit($Seconds * 1000)) {
+        & taskkill.exe /T /F /PID $p.Id 2>&1 | Out-Null
+        throw "The installer did not finish within $Seconds seconds and was stopped."
     }
+    return $p.ExitCode
+}
+
+function Install-Python {
+    # winget is not used: it hangs or fails in a remote (WinRM or SSH) session and as SYSTEM.
     $arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64' -or $env:PROCESSOR_ARCHITEW6432 -eq 'ARM64') { 'arm64' } else { 'amd64' }
     $url = "https://www.python.org/ftp/python/$PythonVersion/python-$PythonVersion-$arch.exe"
     $installer = Join-Path $env:TEMP ('labctl-python-{0}.exe' -f [guid]::NewGuid().ToString('N'))
     try {
         Write-Log "Downloading $url"
-        Invoke-WebRequest -Uri $url -OutFile $installer -UseBasicParsing
+        try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 } catch { $null = $_ }
+        Invoke-WebRequest -Uri $url -OutFile $installer -UseBasicParsing -TimeoutSec 300
         $sig = Get-AuthenticodeSignature -FilePath $installer
         if ($sig.Status -ne 'Valid' -or -not $sig.SignerCertificate -or $sig.SignerCertificate.Subject -notmatch '(^|, )(CN|O)=Python Software Foundation(,|$)') {
             throw 'The Python installer does not carry a valid Python Software Foundation signature. It was not run.'
         }
         Write-Log 'Signature is valid. Installing Python silently for all users.'
-        $p = Start-Process -FilePath $installer -Wait -PassThru -ArgumentList @('/quiet', 'InstallAllUsers=1', 'PrependPath=0',
-            'Include_launcher=0', 'Include_test=0', 'Include_doc=0')
-        if ($p.ExitCode -ne 0 -and $p.ExitCode -ne 3010) { throw "The Python installer failed with exit code $($p.ExitCode)." }
+        $code = Invoke-InstallerWithLimit -File $installer -Arguments @('/quiet', 'InstallAllUsers=1', 'PrependPath=0',
+            'Include_launcher=0', 'Include_test=0', 'Include_doc=0') -Seconds 600
+        if ($code -ne 0 -and $code -ne 3010) { throw "The Python installer failed with exit code $code." }
     } finally {
         Remove-Item -LiteralPath $installer -Force -ErrorAction SilentlyContinue
     }
@@ -271,7 +276,7 @@ function Install-Agent {
         Write-Log 'Downloading the agent from the server'
         [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
         try {
-            Invoke-WebRequest -Uri "$base/install/agent.py" -Headers @{ Authorization = "Bearer $AgentToken" } -OutFile $newAgent -UseBasicParsing
+            Invoke-WebRequest -Uri "$base/install/agent.py" -Headers @{ Authorization = "Bearer $AgentToken" } -OutFile $newAgent -UseBasicParsing -TimeoutSec 120
         } catch {
             throw 'Could not download the agent. Check the server URL and the token.'
         }
@@ -283,7 +288,7 @@ function Install-Agent {
         $r = Invoke-Native $python @('-m', 'venv', (Join-Path $Dir 'venv'))
         if ($r.ExitCode -ne 0) { throw "Could not create the venv. $($r.Output)" }
     }
-    $r = Invoke-Native $venvPy @('-m', 'pip', 'install', '--quiet', '--disable-pip-version-check', '--upgrade', 'websocket-client>=1.6,<2')
+    $r = Invoke-Native $venvPy @('-m', 'pip', 'install', '--quiet', '--disable-pip-version-check', '--timeout', '20', '--retries', '2', '--upgrade', 'websocket-client>=1.6,<2')
     if ($r.ExitCode -ne 0) { throw "pip could not install websocket-client. $($r.Output)" }
     $r = Invoke-Native $venvPy @('-m', 'py_compile', $newAgent)
     if ($r.ExitCode -ne 0) { throw "The agent file does not compile. $($r.Output)" }
