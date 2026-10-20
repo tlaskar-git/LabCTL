@@ -329,6 +329,7 @@ function Install-Agent {
         Write-Log '=== LabCTL agent is running and connected ===' 'Green'
     } else {
         Write-Log "=== The agent task is started but has not connected yet. Check $log ===" 'Yellow'
+        if (Test-Path -LiteralPath $log) { Get-Content -LiteralPath $log -Tail 15 | ForEach-Object { Write-Log "  $_" } }
     }
     Write-Log "Tasks:   $Task (agent), $watchName (watchdog), both as SYSTEM"
     Write-Log "Folder:  $Dir"

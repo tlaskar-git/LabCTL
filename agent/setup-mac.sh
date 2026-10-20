@@ -247,10 +247,20 @@ cat > "$NEWSYSLOG_CONF" <<EOF
 ${LOG_FILE}     root:wheel     640   5      10240     *     J
 EOF
 
+for f in "$PLIST" "$WATCHDOG_PLIST"; do
+  plutil -lint "$f" >/dev/null || { echo "Invalid launchd plist: $f" >&2; exit 1; }
+done
 launchctl bootstrap system "$PLIST"
 launchctl enable "system/${LABEL}"
 launchctl bootstrap system "$WATCHDOG_PLIST"
 launchctl enable "system/${WATCHDOG_LABEL}"
+
+sleep 3
+if ! launchctl print "system/${LABEL}" 2>/dev/null | grep -Eq 'state = running|pid = [0-9]+'; then
+  echo "The agent service did not start. Last log lines:" >&2
+  tail -n 20 "$LOG_FILE" >&2 || true
+  exit 1
+fi
 
 echo ""
 echo "=== LabCTL agent installed ==="
