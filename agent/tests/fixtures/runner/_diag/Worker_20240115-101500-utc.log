@@ -1,0 +1,16 @@
+[2024-01-15 10:15:00Z INFO HostContext] Well known directory 'Bin': '/opt/actions-runner/bin'
+[2024-01-15 10:15:00Z INFO Worker] Version: 2.311.0
+[2024-01-15 10:15:01Z INFO Worker] Waiting to receive the job message from the channel.
+[2024-01-15 10:15:01Z INFO Worker] Job message:
+ {
+  "fileTable": [
+    ".github/workflows/ci.yml"
+  ],
+  "jobDisplayName": "build (ubuntu-latest)",
+  "jobName": "__default",
+  "requestId": 0,
+  "plan": {
+    "planType": "actions"
+  }
+}
+[2024-01-15 10:15:02Z INFO JobRunner] Job ID 00000000-0000-0000-0000-000000000000

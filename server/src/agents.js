@@ -165,6 +165,7 @@ function createAgents(ctx) {
       try { onMessage(ws, msg); } catch (err) { ctx.logger.error('[WS] Error:', err.message); }
     });
     ws.on('close', () => {
+      if (!db.open) return; // socket closed after shutdown
       if (ws.hostId && sockets.get(ws.hostId) === ws) {
         sockets.delete(ws.hostId);
         db.prepare("UPDATE hosts SET status = 'offline' WHERE id = ? AND status = 'online'").run(ws.hostId);

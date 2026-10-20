@@ -67,6 +67,7 @@ import codecs
 import glob
 import hashlib
 import json
+import ntpath
 import os
 import platform
 import plistlib
@@ -2007,7 +2008,8 @@ def _ps_quote(s):
 
 def safe_install_dir(path):
     """Refuse to delete anything that does not look like a LabCTL install folder."""
-    p = os.path.abspath(path)
+    # A Windows drive path is not resolved against the current folder on other systems.
+    p = ntpath.normpath(path) if re.match(r"^[A-Za-z]:[\/]", path) else os.path.abspath(path)
     parts = [x for x in re.split(r"[\\/]+", p) if x and not x.endswith(":")]
     if len(parts) < 2 or "labctl" not in p.lower():
         raise ValueError("refusing to remove %s" % p)
