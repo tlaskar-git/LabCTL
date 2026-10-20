@@ -32,8 +32,18 @@ function createDeploy(ctx, cfg = {}) {
     return fs.readFileSync(f);
   };
 
-  // The public base URL the target must use: the public_url setting, else the origin of the request.
-  function serverBase(req) {
+  // An optional per-host server URL (a tunnel address or a public hostname): http(s), host or IP, optional port, no path.
+  function serverUrl(v) {
+    const s = String(v ?? '').trim().replace(/\/+$/, '');
+    if (!s) return '';
+    const m = PUBLIC_URL_RE.exec(s);
+    if (!m || !HOST_RE.test(m[2])) throw bad('server_url must be http:// or https:// followed by a host name or IP address and an optional port, with no path');
+    return `${m[1]}://${m[2]}`;
+  }
+
+  // The base URL the target must use: the per-host server_url, else the public_url setting, else the origin of the request.
+  function serverBase(req, t) {
+    if (t?.server_url) return t.server_url;
     const pub = ctx.settings.get('public_url');
     const m = typeof pub === 'string' && PUBLIC_URL_RE.exec(pub.trim());
     if (m && HOST_RE.test(m[2])) return `${m[1]}://${m[2]}`;
@@ -62,7 +72,8 @@ function createDeploy(ctx, cfg = {}) {
     if (!USER_RE.test(user)) throw bad('A user name is required');
     const t = { os, address, port, user, relay_host_id: raw.relay_host_id || null, no_service: !!raw.no_service, credential_id: auth.credential_id || null,
       password: auth.password || saved.password || '', private_key: auth.private_key || saved.private_key || '',
-      passphrase: auth.passphrase || saved.passphrase || '', sudo_password: auth.sudo_password || saved.sudo_password || '', hostKey: raw.host_key || '' };
+      passphrase: auth.passphrase || saved.passphrase || '', sudo_password: auth.sudo_password || saved.sudo_password || '', hostKey: raw.host_key || '',
+      server_url: serverUrl(raw.server_url) };
     if (!t.password && !t.private_key) throw bad('A password or private key is required');
     if (t.relay_host_id && os === 'windows') throw bad('A relay supports Linux and Mac targets only');
     if (t.relay_host_id && !/^[A-Za-z0-9._:-]{1,200}$/.test(t.relay_host_id)) throw bad('invalid relay_host_id');
@@ -118,6 +129,9 @@ function createDeploy(ctx, cfg = {}) {
     lastLine: () => d.last,
     phase: p => phase(d, p),
     file: agentFile });
+  // The probes report only ok or fail for the way back to the server. Name the URL and the fix.
+  const hint = (checks, server) => checks.map(c => (c.name === 'Server reachable from the target' && !c.ok
+    ? { ...c, detail: `The host cannot reach ${server}. If it connects through a tunnel or another network, set Server URL for this host.` } : c));
   const flush = d => { if (d.partial) { log(d, d.partial); d.partial = ''; } };
   const timedOut = p => `The ${PHASE[p][0]} step timed out after ${Math.round(config[PHASE[p][1]] / 1000)} s. The target stopped answering.`;
   // Rejects after ms. stop() clears the timer.
@@ -133,8 +147,9 @@ function createDeploy(ctx, cfg = {}) {
     const limit = deadline(config.preflightMs, timedOut('preflight'));
     try {
       const r = await Promise.race([driver(t).inspect(t, helper(d, server)), limit.p]);
-      ctx.audit(actor, 'deploy.preflight', null, { address: t.address, os: t.os, ok: r.checks.every(c => c.ok) });
-      return { checks: r.checks, ok: r.checks.length > 0 && r.checks.every(c => c.ok), transport: r.transport || null, port: r.port || t.port || null, host_key: r.hostKey || null };
+      r.checks = hint(r.checks, server);
+      ctx.audit(actor, 'deploy.preflight', null, { address: t.address, os: t.os, ok: r.checks.every(c => c.ok), server_url: t.server_url || undefined });
+      return { server, checks: r.checks, ok: r.checks.length > 0 && r.checks.every(c => c.ok), transport: r.transport || null, port: r.port || t.port || null, host_key: r.hostKey || null };
     } catch (e) {
       return { checks: [{ name: 'Pre-flight', ok: false, detail: redact(d, e.message) }], ok: false, transport: null, port: null, host_key: null };
     } finally { limit.stop(); deploys.delete(d.id); }
@@ -181,7 +196,9 @@ function createDeploy(ctx, cfg = {}) {
       const install = d.mode !== 'uninstall';
       if (install) {
         log(d, `Pre-flight checks for ${t.address} (${t.os})`);
+        log(d, `Server URL the host connects to: ${server}${t.server_url ? ' (set for this host)' : ''}`);
         const pre = await driver(t).inspect(t, h);
+        pre.checks = hint(pre.checks, server);
         d.checks = pre.checks;
         for (const c of pre.checks) log(d, `${c.ok ? (c.warn ? '[WARN]' : '[PASS]') : '[FAIL]'} ${c.name}: ${c.detail}`);
         const failed = pre.checks.find(c => !c.ok);
@@ -206,7 +223,7 @@ function createDeploy(ctx, cfg = {}) {
         d.host_id = row.id;
         log(d, `Agent registered as ${row.hostname || row.id}`);
         const data = { address: t.address, port: res.port || t.port || undefined, os: t.os, user: t.user, relay_host_id: t.relay_host_id || undefined,
-          no_service: t.no_service || undefined, host_key: res.hostKey || t.hostKey || undefined, transport: res.transport, at: new Date().toISOString() };
+          no_service: t.no_service || undefined, host_key: res.hostKey || t.hostKey || undefined, transport: res.transport, server_url: t.server_url || undefined, at: new Date().toISOString() };
         if (save) data.credential_id = saveCredential(t, row.id);
         else if (t.credential_id) data.credential_id = t.credential_id;
         ops.saveData(db, row.id, { deploy: { ...(ops.getData(db, row.id).deploy || {}), ...data } });
@@ -280,16 +297,18 @@ function createDeploy(ctx, cfg = {}) {
     req.on('close', () => { clearInterval(hb); d.subs.delete(fn); });
   }
 
-  // Fresh token, one-line installers. The token value is returned once and never stored.
-  function manualCommands(server, actor) {
+  // Fresh token, one-line installers. The token value is returned once and never stored. With a per-host server URL the
+  // URL is also passed to the setup script, because the served script carries the public_url setting when one is set.
+  function manualCommands(server, actor, perHost = false) {
     const tok = ctx.tokens.create(`manual install ${new Date().toISOString().slice(0, 10)}`, actor);
     const url = f => `${server}/install/${f}?token=${tok.value}`;
-    ctx.audit(actor, 'deploy.manual', null, { token_id: tok.id });
-    return { token_id: tok.id, server, commands: { linux: `curl -fsSL "${url('linux.sh')}" | sudo bash`, mac: `curl -fsSL "${url('mac.sh')}" | sudo bash`,
-      windows: `irm "${url('windows.ps1')}" | iex` } };
+    ctx.audit(actor, 'deploy.manual', null, { token_id: tok.id, server_url: perHost ? server : undefined });
+    const sh = f => `curl -fsSL "${url(f)}" | sudo bash${perHost ? ` -s -- --server '${server}'` : ''}`;
+    return { token_id: tok.id, server, commands: { linux: sh('linux.sh'), mac: sh('mac.sh'),
+      windows: perHost ? `& ([scriptblock]::Create((irm "${url('windows.ps1')}"))) -ServerUrl '${server}'` : `irm "${url('windows.ps1')}" | iex` } };
   }
 
-  return { config, target, serverBase, preflight, start, view, stream, manualCommands, get: id => deploys.get(id), bad };
+  return { config, target, serverUrl, serverBase, preflight, start, view, stream, manualCommands, get: id => deploys.get(id), bad };
 }
 
 module.exports = { createDeploy };

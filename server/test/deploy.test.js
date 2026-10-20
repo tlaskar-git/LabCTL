@@ -27,7 +27,7 @@ const kvText = kv => Object.entries(kv).map(([k, v]) => `${k}=${v}`).join('\n') 
 // A Linux target. On the install command it registers a fake agent with the token from the uploaded env file.
 function fakeLinux(appPort, o = {}) {
   const opt = { password: PW, sudoPw: SUDO, uid: 1000, hostId: 'h-deploy-1', failInstall: false, probe: {}, ...o };
-  const seen = { commands: [], stdin: [], files: new Map(), removed: [], agents: [], tokens: [] };
+  const seen = { commands: [], stdin: [], files: new Map(), removed: [], agents: [], tokens: [], probes: [] };
   const hostKey = sshHostKey();
 
   async function agentUp(token) {
@@ -38,7 +38,7 @@ function fakeLinux(appPort, o = {}) {
   }
 
   async function handle(cmd, input, stream) {
-    if (cmd === 'sh -s') { stream.write(kvText({ ...PROBE, uid: opt.uid, sudo: opt.uid === 0 ? 'root' : 'password', ...opt.probe })); return 0; }
+    if (cmd === 'sh -s') { seen.probes.push(input); stream.write(kvText({ ...PROBE, uid: opt.uid, sudo: opt.uid === 0 ? 'root' : 'password', ...opt.probe })); return 0; }
     if (cmd === 'id -u') { stream.write(`${opt.uid}\n`); return 0; }
     if (cmd.startsWith("sudo -S -p '' -v")) {
       seen.stdin.push(input);
@@ -192,6 +192,43 @@ test('install: dedicated token, sudo password on stdin only, files removed, no s
   assert.equal(data.deploy.credential_id, undefined);
   assert.equal(data.deploy.address, '127.0.0.1');
   assert.match(data.deploy.host_key, /^SHA256:/);
+});
+
+test('per-host server URL: pre-flight check and hint, install command, log, saved for redeploy, manual commands, strict checks', async (t) => {
+  const { s, admin, op } = await setup(t);
+  const own = 'https://tunnel.example.test:8443';
+  const hintFor = url => `The host cannot reach ${url}. If it connects through a tunnel or another network, set Server URL for this host.`;
+  const cut = await fakeLinux(s.port, { probe: { outbound: 'fail' } });
+  let r = await op('POST', '/api/deploy/preflight', body(cut.port, { server_url: `${own}/` }));
+  assert.equal(r.data.server, own);
+  assert.equal(r.data.checks.find(c => c.name === 'Server reachable from the target').detail, hintFor(own));
+  assert.ok(cut.seen.probes.at(-1).includes(`'${own}/api/health'`), 'the probe asks the per-host URL');
+  r = await op('POST', '/api/deploy/preflight', body(cut.port));
+  assert.equal(r.data.checks.find(c => c.name === 'Server reachable from the target').detail, hintFor(s.base), 'blank: the default URL');
+
+  const srv = await fakeLinux(s.port);
+  const d = await finished(op, (await op('POST', '/api/deploy/start', body(srv.port, { server_url: own }))).data.deploy_id);
+  assert.equal(d.state, 'done', d.error);
+  const env = srv.seen.files.get([...srv.seen.files.keys()].find(k => k.endsWith('deploy.env'))).toString();
+  assert.match(env, /^SERVER_URL='https:\/\/tunnel\.example\.test:8443'$/m, 'the agent gets --server from the per-host URL');
+  assert.ok(d.lines.includes(`Server URL the host connects to: ${own} (set for this host)`));
+  const saved = JSON.parse(s.ctx.db.prepare('SELECT data FROM hosts WHERE id = ?').get('h-deploy-1').data);
+  assert.equal(saved.deploy.server_url, own);
+  assert.equal((await admin('GET', '/api/hosts/h-deploy-1/deploy-target')).data.server_url, own, 'Redeploy prefills it');
+
+  for (const badUrl of ['ftp://x.example.test', 'https://x.example.test/path', 'https://user:pw@x.example.test', 'https://x .example.test', 'https://x.example.test?q=1', 'x.example.test']) {
+    const res = await op('POST', '/api/deploy/preflight', body(srv.port, { server_url: badUrl }));
+    assert.equal(res.status, 400, badUrl);
+    assert.match(res.data.error, /^server_url must be http/);
+  }
+
+  const m = await op('POST', '/api/deploy/manual-commands', { server_url: own });
+  const value = /token=([A-Za-z0-9_-]+)/.exec(m.data.commands.linux)[1];
+  assert.equal(m.data.server, own);
+  assert.equal(m.data.commands.linux, `curl -fsSL "${own}/install/linux.sh?token=${value}" | sudo bash -s -- --server '${own}'`);
+  assert.equal(m.data.commands.mac, `curl -fsSL "${own}/install/mac.sh?token=${value}" | sudo bash -s -- --server '${own}'`);
+  assert.equal(m.data.commands.windows, `& ([scriptblock]::Create((irm "${own}/install/windows.ps1?token=${value}"))) -ServerUrl '${own}'`);
+  assert.equal((await op('POST', '/api/deploy/manual-commands', { server_url: 'https://x.example.test/p' })).status, 400);
 });
 
 test('install failure: exact failure line, token revoked, agent never registers', async (t) => {
@@ -436,13 +473,13 @@ test('unix checks: pass, warn and fail rows', () => {
   assert.match(unix.unixChecks({ ...PROBE, sudo: 'password' }, { os: 'linux', user: 'u', private_key: 'k' })[1].detail, /needs a password/);
 });
 
-test('winrm adapter: NTLM user, shell reuse, encoded commands, error text', async () => {
+test('winrm fallback client (winrm-client): NTLM user, shell reuse, encoded commands, error text', async () => {
   const calls = { cmds: [], deleted: 0 };
   const lib = {
     Shell: { doCreateShell: async p => { calls.params = p; return 'SHELL-1'; }, doDeleteShell: async () => { calls.deleted++; } },
     Command: { doExecuteCommand: async p => { calls.cmds.push(p.command); assert.equal(p.shellId, 'SHELL-1'); return 'CMD-1'; }, doReceiveOutput: async p => `out:${p.commandId}` }
   };
-  const w = await winrm.open({ address: '192.0.2.60', port: 5986, user: 'Administrator', password: 'pw' }, lib);
+  const w = await winrm.open({ address: '192.0.2.60', port: 5986, user: 'Administrator', password: 'pw' }, { lib });
   assert.equal(calls.params.username, '.\\Administrator');
   assert.equal(calls.params.authMethod, 'ntlm');
   assert.equal(calls.params.useHttps, true);
@@ -451,9 +488,9 @@ test('winrm adapter: NTLM user, shell reuse, encoded commands, error text', asyn
   assert.equal(Buffer.from(m[1], 'base64').toString('utf16le'), "'hello'");
   await w.close();
   assert.equal(calls.deleted, 1);
-  assert.equal((await winrm.open({ address: 'a', port: 5985, user: 'D\\u', password: 'p' }, { ...lib, Shell: { doCreateShell: async p => { assert.equal(p.username, 'D\\u'); return 'S'; } } })).run instanceof Function, true);
+  assert.equal((await winrm.open({ address: 'a', port: 5985, user: 'D\\u', password: 'p' }, { lib: { ...lib, Shell: { doCreateShell: async p => { assert.equal(p.username, 'D\\u'); return 'S'; } } } })).run instanceof Function, true);
   const failing = { Shell: { doCreateShell: async () => { throw new Error('HTTP 401 Unauthorized'); } } };
-  await assert.rejects(winrm.open({ address: 'a', port: 5985, user: 'u', password: 'p' }, failing), /WinRM rejected the sign-in for u/);
+  await assert.rejects(winrm.open({ address: 'a', port: 5985, user: 'u', password: 'p' }, { lib: failing }), /WinRM rejected the sign-in for u/);
   assert.match(winrm.cleanErr('#< CLIXML\n<Objs><S S="Error">Boom_x000D__x000A_</S></Objs>'), /^Boom/);
 });
 

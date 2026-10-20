@@ -260,11 +260,15 @@ The installer URLs contain the token. Treat the command line as secret and rotat
 | --- | --- | --- |
 | SSH | Linux, macOS | Password or private key. A saved credential can be reused. |
 | OpenSSH | Windows | Windows with the OpenSSH server running. |
-| WinRM | Windows | NTLM through `winrm-client`. Prefer port 5986 (HTTPS). Over 5985 the target must allow unencrypted WinRM. Certificates on 5986 are not verified. |
+| WinRM | Windows | pywinrm helper: NTLM inside the Negotiate scheme, with message encryption, so port 5985 works with the Windows default (unencrypted WinRM not allowed). Domain controllers work. Certificates on 5986 are not verified. |
 | Relay | Linux, macOS over SSH | An online agent runs the install for a target the server cannot reach. The relay needs OpenSSH 8.4 or newer, `curl` and `tar`. Host keys are not pinned. |
 | Manual | Any | The wizard prints the one-line commands to run yourself. |
 
 The wizard runs a pre-flight check (reachability, host key, privileges, Python), shows a live log, mints a dedicated token for the host and waits for the agent to register. Redeploy and remove-agent use the target saved by the last deploy. Resetting a host key needs admin.
+
+**Server URL for this host** (optional, in the Target step, the Manual command tab and the Redeploy dialog): the address the host uses to reach LabCTL, for example a tunnel address or a public hostname behind the reverse proxy. Use it when the host cannot reach the default (the `public_url` setting, else the address in your browser). Format: `http(s)://host[:port]`, no path. The pre-flight check, the agent's `--server` value and the install commands all use it, the deploy log shows it, and the host remembers it for Redeploy.
+
+**Windows over WinRM** needs: WinRM enabled (`winrm quickconfig` as an administrator), port 5985 or 5986 reachable from the LabCTL server, and an administrator account. Type domain accounts as `DOMAIN\name` (or `name@domain`), local accounts as `name`. Kerberos is not used. The Docker image carries pywinrm in `/opt/winrm-venv`. For a source install, create that venv with `python3 -m venv /opt/winrm-venv && /opt/winrm-venv/bin/pip install -r server/src/deploy/winrm-requirements.txt`, or set `LABCTL_WINRM_PYTHON` to a Python that has those packages. Without pywinrm LabCTL falls back to the built-in `winrm-client`, which sends SOAP unencrypted and fails on hosts with the Windows default.
 
 ### Agentless SSH hosts
 

@@ -26,7 +26,7 @@ function Creds({ f, set, saved, isAdmin, offerSave }) {
 const authOf = f => (f.credential_id ? { credential_id: f.credential_id } : { ...(f.user ? { user: f.user } : {}), ...(f.password ? { password: f.password } : {}), ...(f.private_key ? { private_key: f.private_key } : {}),
   ...(f.sudo_password ? { sudo_password: f.sudo_password } : {}) });
 const blank = { credential_id: '', user: '', password: '', private_key: '', sudo_password: '', save_credential: false, also_remove: false, confirm: '',
-  address: '', os: 'linux', port: '' };
+  address: '', os: 'linux', port: '', server_url: '' };
 const ADDRESS = /^(?!-)[A-Za-z0-9._:-]{1,253}$/; // same rule as the server
 
 // Close button under a running deploy, and the one under a finished one.
@@ -46,7 +46,7 @@ export function RedeployDialog({ host, isAdmin, addToast, onClose, onDone }) {
   const close = useDeployClose(!!deployId && !result, onClose, addToast);
   useEffect(() => {
     api(`/api/hosts/${encodeURIComponent(host.id)}/deploy-target`)
-      .then(d => { setF(p => ({ ...p, address: d.address || '', os: d.os || 'linux', port: d.port ? String(d.port) : '' })); setSaved(d.has_credential); })
+      .then(d => { setF(p => ({ ...p, address: d.address || '', os: d.os || 'linux', port: d.port ? String(d.port) : '', server_url: d.server_url || '' })); setSaved(d.has_credential); })
       .catch(e => setError(`Could not read the saved target: ${e.message}`));
   }, [host.id]);
   const addressOk = ADDRESS.test(f.address.trim());
@@ -55,7 +55,7 @@ export function RedeployDialog({ host, isAdmin, addToast, onClose, onDone }) {
     setBusy(true); setError('');
     try {
       setDeployId((await api(`/api/hosts/${encodeURIComponent(host.id)}/redeploy`, { method: 'POST',
-        body: { address: f.address.trim(), os: f.os, port: f.port ? Number(f.port) : undefined, auth: authOf(f), save_credential: f.save_credential } })).deploy_id);
+        body: { address: f.address.trim(), os: f.os, port: f.port ? Number(f.port) : undefined, server_url: f.server_url.trim(), auth: authOf(f), save_credential: f.save_credential } })).deploy_id);
     } catch (e) { setError(e.message); setBusy(false); }
   };
   return html`<${Modal} title=${`Redeploy agent on ${host.hostname || host.id}`} onClose=${close}>
@@ -67,6 +67,8 @@ export function RedeployDialog({ host, isAdmin, addToast, onClose, onDone }) {
           <option value="linux">Linux</option><option value="mac">Mac</option><option value="windows">Windows</option></select>`)}
         ${field(f.os === 'windows' ? 'Port (blank: try 22, 5986, 5985)' : 'SSH port (blank: 22)', html`<input class="input" inputmode="numeric" value=${f.port} onInput=${e => set('port', e.target.value.trim())} aria-invalid=${!portOk}/>`)}
       </div>
+      ${field('Server URL for this host (optional)', html`<input class="input" value=${f.server_url} placeholder="blank: the default address" inputmode="url" spellcheck=${false} onInput=${e => set('server_url', e.target.value)}/>`)}
+      <div class="page-desc" style=${{ marginBottom: 8, whiteSpace: 'normal' }}>Use this when the host reaches LabCTL through another address, for example a tunnel address or a public hostname. Format: http or https, a host name or IP address, an optional port, no path. Blank: the public_url setting, else this browser's address.</div>
       ${!addressOk && html`<div class="page-desc" style=${{ marginBottom: 8 }}>${f.address ? 'The address can only hold letters, digits, dots, colons, hyphens and underscores.' : 'LabCTL does not know an address for this host. Enter it.'}</div>`}
       <${Creds} f=${f} set=${set} saved=${saved} isAdmin=${isAdmin} offerSave=${true}/>
       ${error && html`<div style=${{ color: 'var(--red)', fontSize: 13 }} role="alert">${error}</div>`}

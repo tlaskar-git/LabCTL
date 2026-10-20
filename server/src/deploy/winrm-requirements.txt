@@ -1,0 +1,16 @@
+# Exact pins for winrm_helper.py (pywinrm with NTLM message encryption). Frozen on Debian bookworm, Python 3.11.
+# Docker image: installed into /opt/winrm-venv by server/Dockerfile.
+# Source installs: python3 -m venv /opt/winrm-venv && /opt/winrm-venv/bin/pip install -r server/src/deploy/winrm-requirements.txt
+# (or point LABCTL_WINRM_PYTHON at any Python that has these packages).
+pywinrm==0.5.0
+pyspnego==0.12.4
+requests-ntlm==1.3.0
+requests==2.34.2
+certifi==2026.10.19
+cffi==2.1.1
+charset-normalizer==3.5.2
+cryptography==50.0.2
+idna==3.20
+pycparser==3.11
+urllib3==2.8.0
+xmltodict==1.0.4

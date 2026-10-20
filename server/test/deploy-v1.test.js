@@ -99,8 +99,8 @@ test('v1 hosts: address and OS derived from what v1 stored, overrides validated'
   const target = async id => (await admin('GET', `/api/hosts/${id}/deploy-target`)).data;
 
   await t.test('free-text OS and loose address forms', async () => {
-    assert.deepEqual(await target('v1-linux'), { os: 'linux', address: '192.0.2.44', port: null, has_credential: false });
-    assert.deepEqual(await target('v1-win'), { os: 'windows', address: '2001:db8::5', port: null, has_credential: false });
+    assert.deepEqual(await target('v1-linux'), { os: 'linux', address: '192.0.2.44', port: null, server_url: '', has_credential: false });
+    assert.deepEqual(await target('v1-win'), { os: 'windows', address: '2001:db8::5', port: null, server_url: '', has_credential: false });
     assert.equal((await target('v1-url')).address, '192.0.2.45');
     assert.equal((await target('v1-none')).address, '');
     assert.equal((await target('v1-name')).address, 'box.example.test');

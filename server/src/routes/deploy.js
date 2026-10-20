@@ -23,18 +23,19 @@ module.exports = (app, ctx) => {
 
   app.post('/api/deploy/preflight', handle(async (req, res) => {
     const t = deploy.target(req.body || {});
-    res.json(await deploy.preflight(t, deploy.serverBase(req), actor(req)));
+    res.json(await deploy.preflight(t, deploy.serverBase(req, t), actor(req)));
   }));
 
   app.post('/api/deploy/start', handle(async (req, res) => {
     needAdminToSave(req);
     const t = deploy.target(req.body || {});
-    const d = deploy.start(t, { actor: actor(req), server: deploy.serverBase(req), name: String(req.body.name || '').slice(0, 100), save: !!req.body.save_credential });
+    const d = deploy.start(t, { actor: actor(req), server: deploy.serverBase(req, t), name: String(req.body.name || '').slice(0, 100), save: !!req.body.save_credential });
     res.status(202).json({ deploy_id: d.id, state: d.state });
   }));
 
   app.post('/api/deploy/manual-commands', handle(async (req, res) => {
-    res.json(deploy.manualCommands(deploy.serverBase(req), actor(req)));
+    const own = deploy.serverUrl(req.body?.server_url);
+    res.json(deploy.manualCommands(own || deploy.serverBase(req), actor(req), !!own));
   }));
 
   app.get('/api/deploy/:id', (req, res) => {
@@ -71,7 +72,7 @@ module.exports = (app, ctx) => {
     const dd = ops.getData(db, h.id).deploy || {};
     const reset = req.body?.reset_host_key;
     if (reset && !isAdmin(req)) throw deploy.bad('admin role required to reset the host key', 403);
-    return { os: dd.os || osOfHost(h.os), address: addressOf(h, dd), port: dd.port, relay_host_id: dd.relay_host_id, no_service: dd.no_service,
+    return { os: dd.os || osOfHost(h.os), address: addressOf(h, dd), port: dd.port, relay_host_id: dd.relay_host_id, no_service: dd.no_service, server_url: dd.server_url,
       host_key: reset ? '' : dd.host_key, auth: { user: req.body?.auth?.credential_id ? undefined : dd.user, credential_id: dd.credential_id } };
   }
   const agentHost = req => {
@@ -85,7 +86,7 @@ module.exports = (app, ctx) => {
   app.get('/api/hosts/:id/deploy-target', handle(async (req, res) => {
     const h = agentHost(req);
     const d = hostDefaults(h, req);
-    res.json({ os: d.os === 'darwin' ? 'mac' : d.os, address: d.address, port: d.port || null, has_credential: !!d.auth.credential_id });
+    res.json({ os: d.os === 'darwin' ? 'mac' : d.os, address: d.address, port: d.port || null, server_url: d.server_url || '', has_credential: !!d.auth.credential_id });
   }));
 
   // Reinstalls the agent on a host. Keeps the host id: the agent registers under the same id.
@@ -100,7 +101,7 @@ module.exports = (app, ctx) => {
       if (e.expose && /^address/.test(e.message) && !body.address) throw deploy.bad('LabCTL does not know an address for this host. Enter its address.');
       throw e;
     }
-    const d = deploy.start(t, { actor: actor(req), server: deploy.serverBase(req), hostId: h.id, name: h.hostname, save: !!req.body?.save_credential });
+    const d = deploy.start(t, { actor: actor(req), server: deploy.serverBase(req, t), hostId: h.id, name: h.hostname, save: !!req.body?.save_credential });
     res.status(202).json({ deploy_id: d.id, state: d.state });
   }));
 

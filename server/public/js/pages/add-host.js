@@ -17,7 +17,7 @@ export default function AddHost({ onClose, addToast, currentUser }) {
   const [tab, setTab] = useState('network');
   const [step, setStep] = useState(0);
   const [f, setF] = useState({ address: '', port: '', os: 'linux', name: '', user: '', auth: 'password', password: '', private_key: '', passphrase: '',
-    sudo_password: '', credential_id: '', save_credential: false, relay_host_id: '', no_service: false });
+    sudo_password: '', credential_id: '', save_credential: false, relay_host_id: '', no_service: false, server_url: '' });
   const [relays, setRelays] = useState([]);
   const [pre, setPre] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -31,7 +31,7 @@ export default function AddHost({ onClose, addToast, currentUser }) {
 
   const windows = f.os === 'windows';
   const body = () => ({ address: f.address.trim(), port: f.port ? Number(f.port) : undefined, os: f.os, name: f.name || f.address,
-    relay_host_id: f.relay_host_id || undefined, no_service: f.no_service,
+    relay_host_id: f.relay_host_id || undefined, no_service: f.no_service, server_url: f.server_url.trim() || undefined,
     auth: f.credential_id ? { credential_id: f.credential_id } : { user: f.user.trim(), ...(f.auth === 'key' ? { private_key: f.private_key, passphrase: f.passphrase } : { password: f.password }),
       ...(f.sudo_password && !windows ? { sudo_password: f.sudo_password } : {}) } });
 
@@ -52,6 +52,12 @@ export default function AddHost({ onClose, addToast, currentUser }) {
   const canNext = [!!f.address.trim() && !!f.os, !!f.credential_id || (!!f.user.trim() && (f.auth === 'key' ? !!f.private_key.trim() : !!f.password)), !!pre?.ok, false, true][step];
   const loadKey = e => { const file = e.target.files?.[0]; if (file) file.text().then(v => set('private_key', v)); };
 
+  const serverUrlField = html`<div class="form-group">
+    <label class="form-label" for="add-host-server-url">Server URL for this host (optional)</label>
+    <input id="add-host-server-url" ...${text('server_url', { placeholder: 'blank: the default address', inputmode: 'url', spellcheck: false })}/>
+    <div class="page-desc">Use this when the host reaches LabCTL through another address, for example a tunnel address or a public hostname. Format: http or https, a host name or IP address, an optional port, no path. Blank: the public_url setting, else this browser's address.</div>
+  </div>`;
+
   const targetStep = html`<div>
     <div class="form-group"><label class="form-label">Operating system</label>
       <div class="btn-group">${OSES.map(([id, label]) => html`<button key=${id} class=${`btn ${f.os === id ? 'btn-primary' : ''}`} onClick=${() => set('os', id)}>${label}</button>`)}</div></div>
@@ -60,7 +66,8 @@ export default function AddHost({ onClose, addToast, currentUser }) {
       ${field(windows ? 'Port (blank: 22, then 5986, 5985)' : 'SSH port', html`<input class="input" type="number" min="1" max="65535" placeholder=${windows ? 'auto' : '22'} value=${f.port} onInput=${e => set('port', e.target.value)}/>`)}
     </div>
     ${field('Display name (optional)', html`<input ...${text('name', { placeholder: 'used in the token label' })}/>`)}
-    <div class="page-desc">${windows ? 'Windows: OpenSSH on port 22 is tried first. If it is closed, WinRM with NTLM (5986 HTTPS, then 5985 HTTP).' : 'The server connects over SSH, uploads the agent and runs the setup with sudo.'}</div>
+    ${serverUrlField}
+    <div class="page-desc">${windows ? 'Windows: OpenSSH on port 22 is tried first. If it is closed, WinRM (5986 HTTPS, then 5985 HTTP) with Negotiate or NTLM sign-in and message encryption. Domain accounts: DOMAIN\\name.' : 'The server connects over SSH, uploads the agent and runs the setup with sudo.'}</div>
   </div>`;
 
   const credStep = html`<div>
@@ -125,7 +132,7 @@ export default function AddHost({ onClose, addToast, currentUser }) {
       <button class=${`tab ${tab === 'network' ? 'active' : ''}`} onClick=${() => setTab('network')} disabled=${locked}>Install over the network</button>
       <button class=${`tab ${tab === 'manual' ? 'active' : ''}`} onClick=${() => setTab('manual')} disabled=${locked}>Manual command</button>
     </div>
-    ${tab === 'manual' ? html`<${ManualInstall} addToast=${addToast}/>` : html`<div>
+    ${tab === 'manual' ? html`<div>${serverUrlField}<${ManualInstall} addToast=${addToast} serverUrl=${f.server_url.trim()}/></div>` : html`<div>
       <div class="btn-group" style=${{ marginBottom: 12, flexWrap: 'wrap' }} aria-label="Steps">
         ${STEPS.map((s, i) => html`<span key=${s} class=${`badge ${i === step ? 'badge-running' : i < step ? 'badge-online' : 'badge-pending'}`}>${i + 1}. ${s}</span>`)}
       </div>

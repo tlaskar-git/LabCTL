@@ -17,12 +17,12 @@ async function copy(text) {
 }
 
 // Manual fallback: makes a fresh enrolment token and shows one install line per OS. The token value is shown once.
-export function ManualInstall({ addToast }) {
+export function ManualInstall({ addToast, serverUrl }) {
   const [res, setRes] = useState(null);
   const [busy, setBusy] = useState(false);
   const make = async () => {
     setBusy(true);
-    try { setRes(await api('/api/deploy/manual-commands', { method: 'POST', body: {} })); } catch (e) { addToast(e.message, 'error'); }
+    try { setRes(await api('/api/deploy/manual-commands', { method: 'POST', body: serverUrl ? { server_url: serverUrl } : {} })); } catch (e) { addToast(e.message, 'error'); }
     setBusy(false);
   };
   return html`<div>

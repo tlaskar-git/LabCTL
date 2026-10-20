@@ -309,8 +309,14 @@ log over SSE, mints a dedicated enrolment token and waits for the agent to regis
   confirmation) use the target saved by the last deploy.
 - Relay: an online Linux or macOS agent runs `relay.sh` as a job, with the target secrets in `LABCTL_SECRET_*`. The relay
   needs OpenSSH 8.4 or newer, `curl` and `tar`. Linux and macOS targets over SSH only. Host keys are not pinned.
-- WinRM uses `winrm-client@0.0.12` (pure JavaScript, NTLM). Over HTTP (5985) the target must allow unencrypted WinRM.
-  Over 5986 certificates are not verified. Scripts travel as `-EncodedCommand`.
+- WinRM runs through `winrm_helper.py`, a pywinrm child process (transport `ntlm`, `message_encryption=auto`). One
+  helper and one remote shell serve a whole deploy. JSON lines on stdin and stdout; the password goes on stdin only,
+  never in argv or the environment. Python is `LABCTL_WINRM_PYTHON`, else `/opt/winrm-venv/bin/python`, else `python3`.
+  If none can import pywinrm, `winrm-client@0.0.12` is the fallback. Scripts travel as `-EncodedCommand`.
+- Per-host server URL: `server_url` in the pre-flight, start and redeploy bodies (and `manual-commands`) overrides the
+  `public_url` setting and the request origin for that host. Same rule as `public_url`: http or https, host or IP,
+  optional port, no path. Saved in the host's deploy data, prefilled by Redeploy, shown in the deploy log and named in
+  the failed reachability check.
 - Credentials saved from the wizard have purpose `deploy`. Saving needs admin. Resetting a stored host key needs admin.
 - Secrets live in the in-memory deploy object only for the run and are redacted from every log line.
 
@@ -472,8 +478,13 @@ Taken in the feature phases (1 to 12):
 20. uPlot draws charts and ansi_up renders ANSI colour in job output. Both are small and vendored.
 21. The UI polls every 3 s while server-sent events are down, and every 15 s as a safety net when they are up. Polling
     keeps working behind proxies that buffer SSE.
-22. WinRM uses `winrm-client` (pure JavaScript, NTLM). It adds no native code. The cost is that HTTP on 5985 needs
-    unencrypted WinRM allowed on the target, and certificates on 5986 are not verified.
+22. WinRM uses pywinrm (with pyspnego and requests-ntlm, exact pins in `server/src/deploy/winrm-requirements.txt`)
+    through a small Python helper, not the JavaScript `winrm-client`. Why: a domain controller offers only the
+    Negotiate scheme and keeps the Windows default AllowUnencrypted=false. `winrm-client` sends its SOAP body in plain
+    text, so the host rejects it on 5985 whatever the password. pywinrm sends NTLM inside Negotiate and seals every
+    message. The image builds the venv in its own stage (wheels only) and the runtime stage adds plain `python3`.
+    Kerberos is out of scope. Certificates on 5986 are not verified: self-signed WinRM listeners are the norm, so this
+    is trust on first use without the pin. Use 5985 with message encryption or a proper certificate where that matters.
 23. Relay design: an online Linux or macOS agent runs the SSH install for targets the server cannot reach. This avoids a
     VPN or inbound rule. Secrets travel in the job environment, never in the stored script. Host keys are not pinned,
     because the relay has no store for them.
